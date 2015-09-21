@@ -17,7 +17,7 @@ import types
 import cumulative
 import matplotlib
 import time
-matplotlib.use("Agg")
+matplotlib.use("MACOSX")
 
 def _pickle_method(m):
     if m.im_self is None:
@@ -42,9 +42,7 @@ class DPGMMSkyPosterior(object):
         
         max_stick: maximum number of mixture components. default = 16
         
-        nside: nside for the healpix map on the sphere. default = 8
-        
-        dist_bins: number of bins in the radial (distance) dimension. default = 10
+        bins: number of bins in the d,ra,dec directions. default = [10,10,10]
         
         dist_max: maximum radial distance to consider. default = 218 Mpc
         
@@ -54,7 +52,7 @@ class DPGMMSkyPosterior(object):
         
         catalog: the galaxy catalog for the ranked list of galaxies
         """
-    def __init__(self,posterior_samples,dimension=3,max_sticks=16,nside=8,dist_bins=10,dist_max=218,nthreads=None,injection=None,catalog=None):
+    def __init__(self,posterior_samples,dimension=3,max_sticks=16,bins=[10,10,10],dist_max=218,nthreads=None,injection=None,catalog=None):
         self.posterior_samples = np.array(posterior_samples)
         self.dims = 3
         self.max_sticks = max_sticks
@@ -62,35 +60,31 @@ class DPGMMSkyPosterior(object):
             self.nthreads = mp.cpu_count()
         else:
             self.nthreads = nthreads
-        self.nside= np.int(nside)
-        self.dist_bins = dist_bins
+        self.bins = bins
         self.dist_max = dist_max
         self.pool = mp.Pool(self.nthreads)
         self.injection = injection
         self.distance_max=dist_max
         self.catalog = None
         if catalog is not None:
-            self.catalog = readGC(catalog)#read_galaxy_catalog(catalog)
-        self._initialise_healpix()
-        self._initialise_distance_grid()
+            self.catalog = readGC(catalog)
+        self._initialise_grid()
 
     def _initialise_dpgmm(self):
         self.model = DPGMM(self.dims)
         for point in self.posterior_samples:
             self.model.add(point)
-        dd = np.diff(self.d_grid)[0]
-        dA = hp.nside2pixarea(self.nside)
-        self.model.setPrior(scale = dd*dA)
+        self.dD = np.diff(self.grid[0])[0]
+        self.dDEC = np.diff(self.grid[1])[0]
+        self.dRA = np.diff(self.grid[2])[0]
+        self.model.setPrior()
         self.model.setThreshold(1e-4)
-        self.model.setConcGamma(1,1)
-
-    def _initialise_healpix(self):
-        self.npix = np.int(hp.nside2npix(nside))
+        self.model.setConcGamma(1/8.,1/8.)
     
-    def _initialise_distance_grid(self):
+    def _initialise_grid(self):
         a = np.maximum(0.9*samples[:,0].min(),1.0)
         b = np.minimum(1.1*samples[:,0].max(),self.distance_max)
-        self.d_grid = np.linspace(a,b,n_dist)
+        self.grid = [np.linspace(a,b,self.bins[0]),np.linspace(-np.pi/2.0,np.pi/2.0,self.bins[1]),np.linspace(0.0,2.0*np.pi,self.bins[2])]
 
     def compute_dpgmm(self):
         self._initialise_dpgmm()
@@ -103,7 +97,7 @@ class DPGMMSkyPosterior(object):
 
     def rank_galaxies(self):
         sys.stderr.write("Ranking the galaxies: computing log posterior for %d galaxies\n"%(self.catalog.shape[0]))
-        jobs = ((self.density,self.nside,di,rai,deci) for di,rai,deci in zip(self.catalog[:,2],self.catalog[:,0],self.catalog[:,1]))
+        jobs = ((self.density,np.array((d,dec,ra))) for d,dec,ra in zip(self.catalog[:,2],self.catalog[:,1],self.catalog[:,0]))
         results = self.pool.imap(logPosterior ,jobs,  chunksize = np.int(self.catalog.shape[0]/ (self.nthreads * 16)))
         logProbs = np.array([r for r in results])
 
@@ -120,46 +114,35 @@ class DPGMMSkyPosterior(object):
         self.ranked_dec = self.ranked_dec[order]
         self.ranked_dl = self.ranked_dl[order]
 
-    def logPosterior(self,d,ra,dec):
-        theta,phi = eq2ang(ra,dec)
-        ipix = hp.pixelfunc.ang2pix(self.nside,theta,phi, nest=True)
-        logPs = [np.log(self.density[0][ind])+prob.logProb(d*np.array(hp.pix2vec(self.nside, ipix, nest=True))) for ind,prob in enumerate(self.density[1])]
-        return logsumexp(logPs)+2.0*np.log(d)+np.log(np.abs(np.sin(theta)))
+    def logPosterior(self,celestial_coordinates):
+        cartesian_vect = celestial_to_cartesian(celestial_coordinates)
+        logPs = [np.log(self.density[0][ind])+prob.logProb(cartesian_vect) for ind,prob in enumerate(self.density[1])]
+        return logsumexp(logPs)+2.0*np.log(celestial_coordinates[0])+np.log(np.abs(np.cos(celestial_coordinates[2])))
 
-    def Posterior(self,d,ra,dec):
-        theta,phi = eq2ang(ra,dec)
-        ipix = hp.pixelfunc.ang2pix(self.nside,theta,phi, nest=True)
-        Ps = [self.density[0][ind]*prob.prob(d*np.array(hp.pix2vec(self.nside, ipix, nest=True))) for ind,prob in enumerate(self.density[1])]
-        return reduce(np.sum,Ps)*np.sin(theta)*d**2
+    def Posterior(self,celestial_coordinates):
+        cartesian_vect = celestial_to_cartesian(celestial_coordinates)
+        Ps = [self.density[0][ind]*prob.prob(cartesian_vect) for ind,prob in enumerate(self.density[1])]
+        return reduce(np.sum,Ps)*np.abs(np.cos(celestial_coordinates[2]))*celestial_coordinates[0]**2
     
     def evaluate_volume_map(self):
-        sys.stderr.write("computing log posterior for %d grid poinds\n"%(self.npix*self.dist_bins))
-        sample_args = ((self.density,d,ipix,self.nside) for d in self.d_grid for ipix in np.arange(self.npix))
-        results = self.pool.imap(sample_volume, sample_args, chunksize = np.int(self.npix*self.dist_bins/ (self.nthreads * 16)))
-        self.log_volume_map = np.array([r for r in results]).reshape(len(self.d_grid),self.npix)
+        N = self.bins[0]*self.bins[1]*self.bins[2]
+        sys.stderr.write("computing log posterior for %d grid poinds\n"%N)
+        sample_args = ((self.density,np.array((d,dec,ra))) for d in self.grid[0] for dec in self.grid[1] for ra in self.grid[2])
+        results = self.pool.imap(logPosterior, sample_args, chunksize = N/(self.nthreads * 16))
+        self.log_volume_map = np.array([r for r in results]).reshape(self.bins[0],self.bins[1],self.bins[2])
         self.volume_map = np.exp(self.log_volume_map)
-        dA = hp.nside2pixarea(self.nside)
-        dd = np.diff(self.d_grid)[0]
-        self.volume_map/=(self.volume_map*dd*dA).sum()
 
     def evaluate_sky_map(self):
-        dd = np.diff(self.d_grid)[0]
-        dA = hp.nside2pixarea(self.nside)
-        # implementing a trapezoidal rule
-        N = self.dist_bins
-        left_log_sum = logsumexp(self.log_volume_map[1:N-1,:], axis=0)
-        right_log_sum = logsumexp(self.log_volume_map[0:N-2,:], axis=0)
-        self.log_skymap = np.logaddexp(left_log_sum,right_log_sum)+np.log(dd/2.)
-#        # trapezoidal rule done line above
-        self.log_skymap-= logsumexp(self.log_skymap)+np.log(dA)
-        self.skymap = np.exp(self.log_skymap)
-        self.skymap/=(self.skymap*dA).sum()
+        dsquared = self.dD*self.grid[0]**2
+        self.skymap = np.tensordot(dsquared,self.volume_map,axes=([0],[0]))
+        self.log_skymap = np.log(self.skymap)
 
     def evaluate_distance_map(self):
-        dA = hp.nside2pixarea(self.nside)
-        self.log_distance_map = logsumexp(self.log_volume_map, axis=1) + np.log(dA)
-        self.distance_map = np.exp(self.log_distance_map)
-        self.distance_map/=(self.distance_map*np.diff(self.d_grid)[0]).sum()
+        cosdec = np.cos(self.grid[1])*self.dDEC
+        intermediate = np.tensordot(cosdec,self.volume_map,axes=([0],[1]))
+        self.distance_map = np.tensordot(self.grid[2]*self.dRA,intermediate,axes=([0],[1]))
+        self.log_distance_map = np.log(self.distance_map)
+        self.distance_map/=(self.distance_map*np.diff(self.grid[0])[0]).sum()
 
     def ConfidenceVolume(self, adLevels):
         # create a normalized cumulative distribution
@@ -171,22 +154,20 @@ class DPGMMSkyPosterior(object):
         args = [(self.log_volume_map_sorted,self.log_volume_map_cum,level) for level in adLevels]
         adHeights = self.pool.map(FindHeights,args)
         self.heights = {str(lev):hei for lev,hei in zip(adLevels,adHeights)}
-        dd = np.diff(self.d_grid)[0]
-        dA = hp.nside2pixarea(self.nside)
         volumes = []
         for height in adHeights:
-            (index_d, index_hp) = np.where(self.log_volume_map>height)
-            volumes.append(np.sum([self.d_grid[i_d]**2. * dd * dA for i_d in index_d]))
+            (index_d, index_dec, index_ra,) = np.where(self.log_volume_map>=height)
+            volumes.append(np.sum([self.grid[0][i_d]**2. *np.cos(self.grid[1][i_dec]) * self.dD * self.dRA * self.dDEC for i_d,i_dec in zip(index_d,index_dec)]))
         self.volume_confidence = np.array(volumes)
 
         if self.injection!=None:
             ra,dec = self.injection.get_ra_dec()
             distance = self.injection.distance
-            logPval = self.logPosterior(distance,ra,dec)
+            logPval = self.logPosterior(np.array((distance,ra,dec)))
             confidence_level = np.exp(self.log_volume_map_cum[np.abs(self.log_volume_map_sorted-logPval).argmin()])
             height = FindHeights((self.log_volume_map_sorted,self.log_volume_map_cum,confidence_level))
-            (index_d, index_hp) = np.where(self.log_volume_map >= height)
-            searched_volume = np.sum([self.d_grid[i_d]**2. * dd * dA for i_d in index_d])
+            (index_d, index_dec, index_ra,) = np.where(self.log_volume_map>=height)
+            searched_volume = np.sum([self.grid[0][i_d]**2. *np.cos(self.grid[1][i_dec]) * self.dD * self.dRA * self.dDEC for i_d,i_dec in zip(index_d,index_dec)])
             self.injection_volume_confidence = confidence_level
             self.injection_volume_height = height
             return self.volume_confidence,(confidence_level,searched_volume)
@@ -205,22 +186,21 @@ class DPGMMSkyPosterior(object):
         args = [(self.log_skymap_sorted,self.log_skymap_cum,level) for level in adLevels]
         adHeights = self.pool.map(FindHeights,args)
 
-        dA = hp.nside2pixarea(self.nside, degrees=True)
         areas = []
         for height in adHeights:
-            (index_hp,) = np.where(self.log_skymap>height)
-            areas.append(len(index_hp)*dA)
+            (index_dec,index_ra,) = np.where(self.log_skymap>height)
+            areas.append(np.sum([self.dRA*np.cos(self.grid[1][i_dec])*self.dDEC for i_dec in index_dec])*(180.0/np.pi)**2.0)
         self.area_confidence = np.array(areas)
         
         if self.injection!=None:
             ra,dec = self.injection.get_ra_dec()
-            theta,phi = eq2ang(ra,dec)
-            ipix = hp.pixelfunc.ang2pix(self.nside,theta,phi, nest=True)
-            logPval = self.log_skymap[ipix]
+            id_ra = np.abs(self.grid[2]-ra).argmin()
+            id_dec = np.abs(self.grid[1]-dec).argmin()
+            logPval = self.log_skymap[i_dec,i_ra]
             confidence_level = np.exp(self.log_skymap_cum[np.abs(self.log_skymap_sorted-logPval).argmin()])
             height = FindHeights((self.log_skymap_sorted,self.log_skymap_cum,confidence_level))
-            (index_hp,) = np.where(self.log_skymap >= height)
-            searched_area = len(index_hp)*dA
+            (index_dec,index_ra,) = np.where(self.log_skymap >= height)
+            searched_area = np.sum([self.dRA*np.cos(self.grid[1][i_dec])*self.dDEC for i_dec in index_dec])*(180.0/np.pi)**2.0
             return self.area_confidence,(confidence_level,searched_area)
 
         del self.log_skymap_sorted
@@ -228,16 +208,15 @@ class DPGMMSkyPosterior(object):
         return self.area_confidence,None
 
     def ConfidenceDistance(self, adLevels):
-        dd = np.diff(self.d_grid)[0]
-        cumulative_distribution = np.cumsum(self.distance_map*dd)
+        cumulative_distribution = np.cumsum(self.distance_map*self.dD)
         distances = []
         for cl in adLevels:
             idx = np.abs(cumulative_distribution-cl).argmin()
-            distances.append(self.d_grid[idx])
+            distances.append(self.grid[0][idx])
         self.distance_confidence = np.array(distances)
 
         if self.injection!=None:
-            idx = np.abs(self.injection.distance-self.d_grid).argmin()
+            idx = np.abs(self.injection.distance-self.grid[0]).argmin()
             confidence_level = cumulative_distribution[idx]
             searched_distance = self.d_grid[idx]
             return self.distance_confidence,(confidence_level,searched_distance)
@@ -262,26 +241,22 @@ def log_cdf(logpdf):
         logcdf[j]=np.logaddexp(logcdf[j-1],logpdf[j])
     return logcdf-logcdf[-1]
 
-def Posterior(args):
-    density,nside,d,ra,dec = args
-    theta,phi = eq2ang(ra,dec)
-    ipix = hp.pixelfunc.ang2pix(nside,theta,phi, nest=True)
-    Ps = [density[0][ind]*prob.prob(d*np.array(hp.pix2vec(nside, ipix, nest=True))) for ind,prob in enumerate(density[1])]
-    return reduce(np.add,Ps)*np.sin(theta)*d**2
-
 def logPosterior(args):
-    density,nside,d,ra,dec = args
-    theta,phi = eq2ang(ra,dec)
-    ipix = hp.pixelfunc.ang2pix(nside,theta,phi, nest=True)
-    logPs = [np.log(density[0][ind])+prob.logProb(d*np.array(hp.pix2vec(nside, ipix, nest=True))) for ind,prob in enumerate(density[1])]
-    return logsumexp(logPs)+2.0*np.log(d)+np.log(np.abs(np.sin(theta)))
+    density,celestial_coordinates = args
+    cartesian_vect = celestial_to_cartesian(celestial_coordinates)
+    logPs = [np.log(density[0][ind])+prob.logProb(cartesian_vect) for ind,prob in enumerate(density[1])]
+    return logsumexp(logPs)+np.log(Jacobian(cartesian_vect))
 
-def sample_volume(args):
-    (dpgmm,d,ipix,nside) = args
-    theta,phi = hp.pix2ang(nside,ipix, nest=True)
-    logPs = [np.log(dpgmm[0][ind])+prob.logProb(d*np.array(hp.pix2vec(nside, ipix, nest=True))) for ind,prob in enumerate(dpgmm[1])]
-    return logsumexp(logPs)+2.0*np.log(d)+np.log(np.abs(np.sin(theta)))
+def logPosteriorCartesian(args):
+    density,cartesian_coordinates = args
+    logPs = [np.log(density[0][ind])+prob.logProb(cartesian_coordinates) for ind,prob in enumerate(density[1])]
+    return logsumexp(logPs)
 
+def Posterior(args):
+    density,celestial_coordinates = args
+    cartesian_vect = celestial_to_cartesian(celestial_coordinates)
+    Ps = [density[0][ind]*prob.prob(cartesian_vect) for ind,prob in enumerate(density[1])]
+    return reduce(np.sum,Ps)*np.abs(np.cos(celestial_coordinates[2]))*celestial_coordinates[0]**2
 
 def solve_dpgmm(args):
     (nc, model) = args
@@ -292,15 +267,13 @@ def solve_dpgmm(args):
     except:
         return (model.stickCap, -np.inf, model)
 
-def sample_dpgmm(args):
-    print 'sampling component ..'
-    # parse the arguments
-    ((w, p), (d_grid, npix)) = args
-    # get the number of pixels for the healpy nside
-    # calculate the log probablity at the cartesian coordinates
-    logp = np.array([[p.logProb(d*np.array(hp.pix2vec(np.int(nside), pix, nest=True))) for pix in xrange(npix)] for d in d_grid])
-    # multiply by weight of component and return
-    return np.log(w) + logp
+def Jacobian(cartesian_vect):
+#    x,y,z = cartesian_vect[0],cartesian_vect[1],cartesian_vect[2]
+#    d = np.sqrt(x**2+y**2+z**2)
+    d = np.sqrt(cartesian_vect.dot(cartesian_vect))
+    d_sin_theta = np.sqrt(cartesian_vect[:-1].dot(cartesian_vect[:-1]))
+#    d_sin_theta = np.sqrt(x**2+y**2)
+    return d*d_sin_theta
 
 # --------
 # jacobian
@@ -439,6 +412,17 @@ def spherical_to_cartesian(spherical_vect):
     cart_vect[2] = spherical_vect[0] * np.cos(spherical_vect[1])
     return cart_vect
 
+def celestial_to_cartesian(celestial_vect):
+    """Convert the spherical coordinate vector [r, dec, ra] to the Cartesian vector [x, y, z]."""
+    celestial_vect[1]=np.pi/2. - celestial_vect[1]
+    return spherical_to_cartesian(celestial_vect)
+
+def cartesian_to_celestial(cartesian_vect):
+    """Convert the Cartesian vector [x, y, z] to the celestial coordinate vector [r, dec, ra]."""
+    spherical_vect = cartesian_to_spherical(cartesian_vect)
+    spherical_vect[1]=np.pi/2. - spherical_vect[1]
+    return spherical_vect
+
 def readGC(file,standard_cosmology=True):
 
     ra,dec,zs,zp =[],[],[],[]
@@ -496,6 +480,11 @@ params = {'backend': 'TkAgg',
     'text.usetex': False,
     'figure.figsize': fig_size}
 
+def parse_to_list(option, opt, value, parser):
+    """
+    parse a comma separated string into a list
+    """
+    setattr(parser.values, option.dest, value.split(','))
 
 #-------------------
 # start the program
@@ -506,8 +495,8 @@ if __name__=='__main__':
     parser.add_option("-i", "--input", type="string", dest="input", help="Input file")
     parser.add_option("--inj",type="string",dest="injfile",help="injection file",default=None)
     parser.add_option("-o", "--output", type="string", dest="output", help="Output file")
-    parser.add_option("--nside", type="int", dest="nside", help="nside of healpix")
-    parser.add_option("--dr", type="int", dest="n_dist", help="number of bins in distance")
+    parser.add_option("--bins", type="string", dest="bins", help="number of bins in d,dec,ra", action='callback',
+                      callback=parse_to_list)
     parser.add_option("--dmax", type="float", dest="dmax", help="maximum distance (Mpc)")
     parser.add_option("--max-stick", type="int", dest="max_stick", help="maximum number of gaussian components")
     parser.add_option("-e", type="int", dest="event_id", help="event ID")
@@ -523,9 +512,7 @@ if __name__=='__main__':
     injFile = options.injfile
     eventID = options.event_id
     out_dir = options.output
-    nside = options.nside
-    n_dist = options.n_dist
-  
+    options.bins = np.array(options.bins,dtype=np.int)
     os.system('mkdir -p %s'%(out_dir))
   
     if injFile!=None:
@@ -541,17 +528,21 @@ if __name__=='__main__':
         injection = None
 
     samples = np.genfromtxt(input_file,names=True)
-    print  samples.dtype.names
-    if "dist" in samples.dtype.names:
-        samples = np.column_stack((samples["dist"],samples["ra"],samples["dec"],samples["time"]))
-    else:
-        samples = np.column_stack((samples["distance"],samples["ra"],samples["dec"],samples["time"]))
 
-    npix = np.int(hp.nside2npix(nside))
-    print 'The number of grid points in the sky is :',hp.nside2npix(nside),'resolution = ',hp.nside2pixarea(nside, degrees = True), ' deg^2'
-    print 'The number of grid points in distance is :',n_dist,'resolution = ',(options.dmax-1.0)/n_dist,' Mpc'
-    print 'Total grid size is :',n_dist*hp.nside2npix(nside)
-    print 'Volume resolution is :',hp.nside2pixarea(nside)*(options.dmax-1.0)/n_dist,' Mpc^3'
+    # we are going to normalisa the distance between 0 and 1
+
+    if "dist" in samples.dtype.names:
+        samples = np.column_stack((samples["dist"],samples["dec"],samples["ra"],samples["time"]))
+    else:
+        samples = np.column_stack((samples["distance"],samples["dec"],samples["ra"],samples["time"]))
+
+    dRA = 2.0*np.pi/options.bins[2]
+    dDEC = np.pi/options.bins[1]
+    dD = (options.dmax-1.0)/options.bins[0]
+    print 'The number of grid points in the sky is :',options.bins[1]*options.bins[2],'resolution = ',np.degrees(dRA)*np.degrees(dDEC), ' deg^2'
+    print 'The number of grid points in distance is :',options.bins[0],'minimum resolution = ',dD,' Mpc'
+    print 'Total grid size is :',options.bins[1]*options.bins[2]*options.bins[0]
+    print 'Volume resolution is :',dD*dDEC*dRA,' Mpc^3'
 
     samps = []
     gmst_rad = []
@@ -564,19 +555,16 @@ if __name__=='__main__':
     for k in xrange(len(samples[idx,0])):
         GPSTime=lal.LIGOTimeGPS(samples[k,3])
         gmst_rad.append(lal.GreenwichMeanSiderealTime(GPSTime))
-#        theta,phi = eq2ang(samples[k,1]-gmst_rad[-1],samples[k,2])
-        theta,phi = eq2ang(samples[k,1],samples[k,2])
-        ipix = hp.pixelfunc.ang2pix(np.int(nside),theta,phi, nest=True)
-        samps.append(samples[k,0]*np.array(hp.pix2vec(np.int(nside), ipix, nest=True)))
+        samps.append(celestial_to_cartesian(np.array((samples[k,0],samples[k,1],samples[k,2]))))
 
     dpgmm = DPGMMSkyPosterior(samps,dimension=3,
                               max_sticks=options.max_stick,
-                              nside=options.nside,
-                              dist_bins=options.n_dist,
+                              bins=options.bins,
                               dist_max=options.dmax,
                               nthreads=options.nthreads,
                               injection=injection,
                               catalog=options.catalog)
+
     dpgmm.compute_dpgmm()
 
     if dpgmm.catalog is not None:
@@ -588,11 +576,39 @@ if __name__=='__main__':
                    header='ra[deg]\tdec[deg]\tDL[Mpc]\tlogposterior')
 
     dpgmm.evaluate_volume_map()
+    volumes,searched_volume = dpgmm.ConfidenceVolume(CLs)
     dpgmm.evaluate_sky_map()
     dpgmm.evaluate_distance_map()
-    volumes,searched_volume = dpgmm.ConfidenceVolume(CLs)
     areas,searched_area = dpgmm.ConfidenceArea(CLs)
     distances,searched_distance = dpgmm.ConfidenceDistance(CLs)
+
+    # try to produce a volume plot
+    if 1:
+        sys.stderr.write("rendering 3D volume\n")
+        from mayavi import mlab
+        # Create a cartesian grid
+        N = 100
+        MAX = dpgmm.grid[0][-1]
+        x = np.linspace(-MAX,MAX,N)
+        y = np.linspace(-MAX,MAX,N)
+        z = np.linspace(-MAX,MAX,N)
+        sample_args = ((dpgmm.density,np.array((xi,yi,zi))) for xi in x for yi in y for zi in x)
+        results = dpgmm.pool.imap(logPosteriorCartesian, sample_args, chunksize = N**3/(dpgmm.nthreads * 16))
+        log_cartesian_map = np.array([r for r in results]).reshape(N,N,N)
+        log_cartesian_map[np.isinf(log_cartesian_map)] = np.nan
+        min = log_cartesian_map.min()
+        max = log_cartesian_map.max()
+        mlab.figure(1, bgcolor=(1, 1, 1), fgcolor=(0, 0, 0), size=(1000, 1000))
+        mlab.clf()
+        X,Y,Z = np.meshgrid(x,y,z)
+#            O = mlab.pipeline.scalar_scatter([0.0],[0.0],[0.0], colormap="copper", scale_factor=.25, mode="sphere",opacity=0.5)
+#            mlab.contour3d(X,Y,Z,log_cartesian_map,contours=10)
+        mlab.pipeline.volume(mlab.pipeline.scalar_field(log_cartesian_map),vmin=min + 0.25 * (max - min),
+                             vmax=min + 0.9 * (max - min))
+#        axes = mlab.axes(xlabel=r'$D_L$', ylabel=r'$D_L$', zlabel=r'$D_L$')
+        mlab.show()
+    
+    exit()
 
     if dpgmm.catalog is not None:
         number_of_galaxies = np.zeros(len(CLs),dtype=np.int)
@@ -614,13 +630,13 @@ if __name__=='__main__':
 
     if options.plots:
         import matplotlib.pyplot as plt
-        hp.visufunc.mollview(dpgmm.log_skymap)
-        if injFile!=None:
-            hp.visufunc.projscatter(eq2ang(ra_inj,dec_inj), c='y', s=256, marker='*')
-        plt.savefig(os.path.join(options.output,'sky_map.pdf'),bbox_inches='tight')
-        plt.figure()
-        plt.plot(dpgmm.d_grid,dpgmm.distance_map,color="k",linewidth=2.0)
-        plt.hist(samples[:,0],bins=dpgmm.d_grid,normed=True,facecolor="0.9")
+#        hp.visufunc.mollview(dpgmm.log_skymap)
+#        if injFile!=None:
+#            hp.visufunc.projscatter(eq2ang(ra_inj,dec_inj), c='y', s=256, marker='*')
+#        plt.savefig(os.path.join(options.output,'sky_map.pdf'),bbox_inches='tight')
+#        plt.figure()
+        plt.plot(dpgmm.grid[0],dpgmm.distance_map,color="k",linewidth=2.0)
+        plt.hist(samples[:,0],bins=dpgmm.grid[0],normed=True,facecolor="0.9")
         if injFile!=None: plt.axvline(dist_inj,color="k",linestyle="dashed")
         plt.xlabel(r"$\mathrm{Distance/Mpc}$")
         plt.ylabel(r"$\mathrm{probability}$ $\mathrm{density}$")
@@ -635,14 +651,13 @@ if __name__=='__main__':
         lat_cen = lat_inj = np.degrees(dec_inj)
     else:
         gmst_deg = np.mod(np.degrees(np.array(gmst_rad)), 360)
-        lon_cen = np.degrees(np.mean(samples[:,1])) - np.mean(gmst_deg)
-        lat_cen = np.degrees(np.mean(samples[:,2]))
+        lon_cen = np.degrees(np.mean(samples[:,2])) - np.mean(gmst_deg)
+        lat_cen = np.degrees(np.mean(samples[:,1]))
 
-    lon_samp = np.degrees(samples[:,1]) - gmst_deg
-    lat_samp = np.degrees(samples[:,2])
+    lon_samp = np.degrees(samples[:,2]) - gmst_deg
+    lat_samp = np.degrees(samples[:,1])
 
-    (theta_map, phi_map) = hp.pix2ang(dpgmm.nside, range(hp.nside2npix(nside)), nest=True)
-    ra_map,dec_map = ang2eq(theta_map, phi_map)
+    ra_map,dec_map = dpgmm.grid[2],dpgmm.grid[1]
     lon_map = np.degrees(ra_map) - np.mean(gmst_deg)
     lat_map = np.degrees(dec_map)
     if options.plots:
@@ -653,20 +668,49 @@ if __name__=='__main__':
         plt.ylabel(r"$\mathrm{marginal}$ $\mathrm{likelihood}$")
         plt.savefig(os.path.join(out_dir, 'scores.pdf'))
         
-        from mpl_toolkits.basemap import Basemap
-
+        from mpl_toolkits.basemap import Basemap,shiftgrid
+        # make an orthographic projection map
         plt.figure()
-        m = Basemap(projection='moll', lon_0=round(lon_cen, 2), lat_0=0, resolution='c')
+        m = Basemap(projection='ortho', lon_0=round(lon_cen, 2), lat_0=lat_cen, resolution='c')
         m.drawcoastlines(linewidth=0.5, color='0.5')
         m.drawparallels(np.arange(-90,90,30), labels=[1,0,0,0], labelstyle='+/-', linewidth=0.1, dashes=[1,1], alpha=0.5)
         m.drawmeridians(np.arange(0,360,60), linewidth=0.1, dashes=[1,1], alpha=0.5)
         m.drawmapboundary(linewidth=0.5, fill_color='white')
-        plt.scatter(*m(lon_samp, lat_samp), color='g', s=0.1, lw=0)
-        S = plt.scatter(*m(lon_map, lat_map), c=dpgmm.log_skymap, cmap='RdPu', s=2, lw=0)
+        X,Y = m(*np.meshgrid(lon_map, lat_map))
+        plt.scatter(*m(lon_samp, lat_samp), color='k', s=0.1, lw=0)
+        S = m.contourf(X,Y,dpgmm.log_skymap,100,linestyles='-', hold='on',origin='lower', cmap='RdPu', s=2, lw=0)
         if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='r', s=500, marker='+')
         cbar = m.colorbar(S,location='bottom',pad="5%")
         cbar.set_label(r"$\log(\mathrm{Probability})$")
         plt.savefig(os.path.join(out_dir, 'marg_log_sky_%d.pdf'%(eventID)))
+        # make an equatorial equidistant projection map
+        plt.figure()
+        m = Basemap(projection='aeqd', lon_0=round(lon_cen, 2), lat_0=0, resolution='c')
+        m.drawcoastlines(linewidth=0.5, color='0.5')
+        m.drawparallels(np.arange(-90,90,30), labels=[1,0,0,0], labelstyle='+/-', linewidth=0.1, dashes=[1,1], alpha=0.5)
+        m.drawmeridians(np.arange(0,360,60), linewidth=0.1, dashes=[1,1], alpha=0.5)
+        m.drawmapboundary(linewidth=0.5, fill_color='white')
+        X,Y = m(*np.meshgrid(lon_map, lat_map))
+        plt.scatter(*m(lon_samp, lat_samp), color='k', s=0.1, lw=0)
+        S = m.contourf(X,Y,dpgmm.log_skymap,100,linestyles='-', hold='on',origin='lower', cmap='RdPu', s=2, lw=0)
+        if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='r', s=500, marker='+')
+        cbar = m.colorbar(S,location='bottom',pad="5%")
+        cbar.set_label(r"$\log(\mathrm{Probability})$")
+        plt.savefig(os.path.join(out_dir, 'marg_log_sky_aeqd_%d.pdf'%(eventID)))
+#
+        plt.figure()
+        m = Basemap(projection='ortho', lon_0=round(lon_cen, 2), lat_0=lat_cen, resolution='c')
+        m.drawcoastlines(linewidth=0.5, color='0.5')
+        m.drawparallels(np.arange(-90,90,30), labels=[1,0,0,0], labelstyle='+/-', linewidth=0.1, dashes=[1,1], alpha=0.5)
+        m.drawmeridians(np.arange(0,360,60), linewidth=0.1, dashes=[1,1], alpha=0.5)
+        m.drawmapboundary(linewidth=0.5, fill_color='white')
+        X,Y = m(*np.meshgrid(lon_map, lat_map))
+        plt.scatter(*m(lon_samp, lat_samp), color='k', s=0.1, lw=0)
+        S = m.contourf(X,Y,dpgmm.skymap,100,linestyles='-', hold='on',origin='lower', cmap='RdPu', s=2, lw=0)
+        if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='r', s=500, marker='+')
+        cbar = m.colorbar(S,location='bottom',pad="5%")
+        cbar.set_label(r"$\mathrm{probability}$ $\mathrm{density}$")
+        plt.savefig(os.path.join(out_dir, 'marg_sky_%d.pdf'%(eventID)))
 
         plt.figure()
         m = Basemap(projection='aeqd', lon_0=round(lon_cen, 2), lat_0=0, resolution='c')
@@ -674,42 +718,31 @@ if __name__=='__main__':
         m.drawparallels(np.arange(-90,90,30), labels=[1,0,0,0], labelstyle='+/-', linewidth=0.1, dashes=[1,1], alpha=0.5)
         m.drawmeridians(np.arange(0,360,60), linewidth=0.1, dashes=[1,1], alpha=0.5)
         m.drawmapboundary(linewidth=0.5, fill_color='white')
-        plt.scatter(*m(lon_samp, lat_samp), color='g', s=0.1, lw=0)
-        S = plt.scatter(*m(lon_map, lat_map), c=dpgmm.log_skymap, cmap='RdPu', s=2, lw=0)
+        X,Y = m(*np.meshgrid(lon_map, lat_map))
+        plt.scatter(*m(lon_samp, lat_samp), color='k', s=0.1, lw=0)
+        S = m.contourf(X,Y,dpgmm.skymap,100,linestyles='-', hold='on',origin='lower', cmap='RdPu', s=2, lw=0)
         if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='r', s=500, marker='+')
         cbar = m.colorbar(S,location='bottom',pad="5%")
-        cbar.set_label(r"$\log(\mathrm{Probability})$")
-        plt.savefig(os.path.join(out_dir, 'marg_log_sky_aed_%d.pdf'%(eventID)))
-        
-        plt.figure()
-        m = Basemap(projection='moll', lon_0=round(lon_cen, 2), lat_0=0, resolution='c')
-        m.drawcoastlines(linewidth=0.5, color='0.5')
-        m.drawparallels(np.arange(-90,90,30), labels=[1,0,0,0], labelstyle='+/-', linewidth=0.1, dashes=[1,1], alpha=0.5)
-        m.drawmeridians(np.arange(0,360,60), linewidth=0.1, dashes=[1,1], alpha=0.5)
-        m.drawmapboundary(linewidth=0.5, fill_color='white')
-        plt.scatter(*m(lon_samp, lat_samp), color='g', s=0.1, lw=0)
-        S = plt.scatter(*m(lon_map, lat_map), c=dpgmm.skymap, cmap='RdPu', s=2, lw=0) #OrRd
-        if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='r', s=500, marker='+')
-        cbar = m.colorbar(S,location='bottom',pad="5%")
-        cbar.set_label(r"$\mathrm{Probability}$ $\mathrm{density}$")
-        plt.savefig(os.path.join(out_dir, 'marg_sky_%d.pdf'%(eventID)))
+        cbar.set_label(r"$\mathrm{probability}$ $\mathrm{density}$")
+        plt.savefig(os.path.join(out_dir, 'marg_sky_aeqd_%d.pdf'%(eventID)))
 
         if options.plots:
             if options.catalog:
+                out_dir = os.path.join(out_dir, 'galaxies_scatter')
+                os.system("mkdir -p %s"%out_dir)
                 sys.stderr.write("producing 3 dimensional maps\n")
-                theta,phi = eq2ang(dpgmm.ranked_ra,dpgmm.ranked_dec)
                 # Create a sphere
-                x = dpgmm.ranked_dl*np.sin(theta)*np.cos(phi)
-                y = dpgmm.ranked_dl*np.sin(theta)*np.sin(phi)
-                z = dpgmm.ranked_dl*np.cos(theta)
+                x = dpgmm.ranked_dl*np.cos(dpgmm.ranked_dec)*np.cos(dpgmm.ranked_ra)
+                y = dpgmm.ranked_dl*np.cos(dpgmm.ranked_dec)*np.sin(dpgmm.ranked_ra)
+                z = dpgmm.ranked_dl*np.sin(dpgmm.ranked_dec)
 
                 imax = dpgmm.ranked_probability.argmax()
                 threshold = dpgmm.heights['0.5']
                 (k,) = np.where(dpgmm.ranked_probability>threshold)
-                MIN = dpgmm.d_grid[0]
-                MAX = dpgmm.d_grid[-1]
+                MIN = dpgmm.grid[0][0]
+                MAX = dpgmm.grid[0][-1]
                 sys.stderr.write("%d galaxies above threshold, plotting\n"%(len(k)))
-                myfig = plt.figure()
+
                 from mpl_toolkits.mplot3d import Axes3D
                 fig = plt.figure()
                 ax = fig.add_subplot(111, projection='3d')
@@ -738,7 +771,7 @@ if __name__=='__main__':
                 ax.set_xlabel(r"$D_L/\mathrm{Mpc}$")
                 ax.set_ylabel(r"$D_L/\mathrm{Mpc}$")
                 ax.set_zlabel(r"$D_L/\mathrm{Mpc}$")
-                
+
                 for ii in xrange(0,360,1):
                     sys.stderr.write("producing frame %03d\r"%ii)
                     ax.view_init(elev=40., azim=ii)
@@ -758,7 +791,7 @@ if __name__=='__main__':
                 m.drawparallels(np.arange(-90,90,30), labels=[1,0,0,0], labelstyle='+/-', linewidth=0.1, dashes=[1,1], alpha=0.5)
                 m.drawmeridians(np.arange(0,360,60), linewidth=0.1, dashes=[1,1], alpha=0.5)
                 m.drawmapboundary(linewidth=0.5, fill_color='white')
-                plt.scatter(*m(lon_map, lat_map), c=dpgmm.log_skymap, cmap='OrRd', s=2, lw=0)
+
                 S = plt.scatter(*m(lon_gals, lat_gals), s=dl_gals, c=logProbability, lw=0, marker='o')
 
                 if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='k', s=500, marker='+')
