@@ -163,7 +163,7 @@ class DPGMMSkyPosterior(object):
         if self.injection!=None:
             ra,dec = self.injection.get_ra_dec()
             distance = self.injection.distance
-            logPval = self.logPosterior(np.array((distance,ra,dec)))
+            logPval = self.logPosterior(np.array((distance,dec,ra)))
             confidence_level = np.exp(self.log_volume_map_cum[np.abs(self.log_volume_map_sorted-logPval).argmin()])
             height = FindHeights((self.log_volume_map_sorted,self.log_volume_map_cum,confidence_level))
             (index_d, index_dec, index_ra,) = np.where(self.log_volume_map>=height)
