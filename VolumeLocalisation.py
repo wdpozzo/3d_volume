@@ -74,9 +74,6 @@ class DPGMMSkyPosterior(object):
         self.model = DPGMM(self.dims)
         for point in self.posterior_samples:
             self.model.add(point)
-        self.dD = np.diff(self.grid[0])[0]
-        self.dDEC = np.diff(self.grid[1])[0]
-        self.dRA = np.diff(self.grid[2])[0]
         self.model.setPrior()
         self.model.setThreshold(1e-4)
         self.model.setConcGamma(1,1)
@@ -85,6 +82,9 @@ class DPGMMSkyPosterior(object):
         a = np.maximum(0.9*samples[:,0].min(),1.0)
         b = np.minimum(1.1*samples[:,0].max(),self.distance_max)
         self.grid = [np.linspace(a,b,self.bins[0]),np.linspace(-np.pi/2.0,np.pi/2.0,self.bins[1]),np.linspace(0.0,2.0*np.pi,self.bins[2])]
+        self.dD = np.diff(self.grid[0])[0]
+        self.dDEC = np.diff(self.grid[1])[0]
+        self.dRA = np.diff(self.grid[2])[0]
 
     def compute_dpgmm(self):
         self._initialise_dpgmm()
@@ -188,7 +188,7 @@ class DPGMMSkyPosterior(object):
 
         areas = []
         for height in adHeights:
-            (index_dec,index_ra,) = np.where(self.log_skymap>height)
+            (index_dec,index_ra,) = np.where(self.log_skymap>=height)
             areas.append(np.sum([self.dRA*np.cos(self.grid[1][i_dec])*self.dDEC for i_dec in index_dec])*(180.0/np.pi)**2.0)
         self.area_confidence = np.array(areas)
         
