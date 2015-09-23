@@ -196,7 +196,7 @@ class DPGMMSkyPosterior(object):
             ra,dec = self.injection.get_ra_dec()
             id_ra = np.abs(self.grid[2]-ra).argmin()
             id_dec = np.abs(self.grid[1]-dec).argmin()
-            logPval = self.log_skymap[i_dec,i_ra]
+            logPval = self.log_skymap[id_dec,id_ra]
             confidence_level = np.exp(self.log_skymap_cum[np.abs(self.log_skymap_sorted-logPval).argmin()])
             height = FindHeights((self.log_skymap_sorted,self.log_skymap_cum,confidence_level))
             (index_dec,index_ra,) = np.where(self.log_skymap >= height)
@@ -218,7 +218,7 @@ class DPGMMSkyPosterior(object):
         if self.injection!=None:
             idx = np.abs(self.injection.distance-self.grid[0]).argmin()
             confidence_level = cumulative_distribution[idx]
-            searched_distance = self.d_grid[idx]
+            searched_distance = self.grid[0][idx]
             return self.distance_confidence,(confidence_level,searched_distance)
 
         return self.distance_confidence,None
