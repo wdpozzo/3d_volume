@@ -79,7 +79,7 @@ class DPGMMSkyPosterior(object):
         self.dRA = np.diff(self.grid[2])[0]
         self.model.setPrior()
         self.model.setThreshold(1e-4)
-        self.model.setConcGamma(1/8.,1/8.)
+        self.model.setConcGamma(1,1)
     
     def _initialise_grid(self):
         a = np.maximum(0.9*samples[:,0].min(),1.0)
@@ -117,12 +117,12 @@ class DPGMMSkyPosterior(object):
     def logPosterior(self,celestial_coordinates):
         cartesian_vect = celestial_to_cartesian(celestial_coordinates)
         logPs = [np.log(self.density[0][ind])+prob.logProb(cartesian_vect) for ind,prob in enumerate(self.density[1])]
-        return logsumexp(logPs)+2.0*np.log(celestial_coordinates[0])+np.log(np.abs(np.cos(celestial_coordinates[2])))
+        return logsumexp(logPs)+np.log(Jacobian(cartesian_vect))
 
     def Posterior(self,celestial_coordinates):
         cartesian_vect = celestial_to_cartesian(celestial_coordinates)
         Ps = [self.density[0][ind]*prob.prob(cartesian_vect) for ind,prob in enumerate(self.density[1])]
-        return reduce(np.sum,Ps)*np.abs(np.cos(celestial_coordinates[2]))*celestial_coordinates[0]**2
+        return reduce(np.sum,Ps)*Jacobian(cartesian_vect)
     
     def evaluate_volume_map(self):
         N = self.bins[0]*self.bins[1]*self.bins[2]
@@ -582,34 +582,6 @@ if __name__=='__main__':
     areas,searched_area = dpgmm.ConfidenceArea(CLs)
     distances,searched_distance = dpgmm.ConfidenceDistance(CLs)
 
-    # try to produce a volume plot
-    if 1:
-        sys.stderr.write("rendering 3D volume\n")
-        from mayavi import mlab
-        # Create a cartesian grid
-        N = 100
-        MAX = dpgmm.grid[0][-1]
-        x = np.linspace(-MAX,MAX,N)
-        y = np.linspace(-MAX,MAX,N)
-        z = np.linspace(-MAX,MAX,N)
-        sample_args = ((dpgmm.density,np.array((xi,yi,zi))) for xi in x for yi in y for zi in x)
-        results = dpgmm.pool.imap(logPosteriorCartesian, sample_args, chunksize = N**3/(dpgmm.nthreads * 16))
-        log_cartesian_map = np.array([r for r in results]).reshape(N,N,N)
-        log_cartesian_map[np.isinf(log_cartesian_map)] = np.nan
-        min = log_cartesian_map.min()
-        max = log_cartesian_map.max()
-        mlab.figure(1, bgcolor=(1, 1, 1), fgcolor=(0, 0, 0), size=(1000, 1000))
-        mlab.clf()
-        X,Y,Z = np.meshgrid(x,y,z)
-#            O = mlab.pipeline.scalar_scatter([0.0],[0.0],[0.0], colormap="copper", scale_factor=.25, mode="sphere",opacity=0.5)
-#            mlab.contour3d(X,Y,Z,log_cartesian_map,contours=10)
-        mlab.pipeline.volume(mlab.pipeline.scalar_field(log_cartesian_map),vmin=min + 0.25 * (max - min),
-                             vmax=min + 0.9 * (max - min))
-#        axes = mlab.axes(xlabel=r'$D_L$', ylabel=r'$D_L$', zlabel=r'$D_L$')
-        mlab.show()
-    
-    exit()
-
     if dpgmm.catalog is not None:
         number_of_galaxies = np.zeros(len(CLs),dtype=np.int)
 
@@ -799,3 +771,30 @@ if __name__=='__main__':
                 cbar.set_label(r"$\log(\mathrm{Probability})$")
 
                 plt.savefig(os.path.join(out_dir, 'galaxies_marg_sky_%d.pdf'%(eventID)))
+    # try to produce a volume plot
+    if 1:
+        sys.stderr.write("rendering 3D volume\n")
+        from mayavi import mlab
+        # Create a cartesian grid
+        N = 100
+        MAX = dpgmm.grid[0][-1]
+        x = np.linspace(-MAX,MAX,N)
+        y = np.linspace(-MAX,MAX,N)
+        z = np.linspace(-MAX,MAX,N)
+        sample_args = ((dpgmm.density,np.array((xi,yi,zi))) for xi in x for yi in y for zi in x)
+        results = dpgmm.pool.imap(logPosteriorCartesian, sample_args, chunksize = N**3/(dpgmm.nthreads * 16))
+        log_cartesian_map = np.array([r for r in results]).reshape(N,N,N)
+        log_cartesian_map[np.isinf(log_cartesian_map)] = np.nan
+        min = log_cartesian_map.min()
+        max = log_cartesian_map.max()
+        mlab.figure(1, bgcolor=(1, 1, 1), fgcolor=(0, 0, 0), size=(1000, 1000))
+        mlab.clf()
+        X,Y,Z = np.meshgrid(x,y,z)
+#            O = mlab.pipeline.scalar_scatter([0.0],[0.0],[0.0], colormap="copper", scale_factor=.25, mode="sphere",opacity=0.5)
+#            mlab.contour3d(X,Y,Z,log_cartesian_map,contours=10)
+        mlab.pipeline.volume(mlab.pipeline.scalar_field(log_cartesian_map),vmin=min + 0.25 * (max - min),
+                             vmax=min + 0.9 * (max - min))
+#        axes = mlab.axes(xlabel=r'$D_L$', ylabel=r'$D_L$', zlabel=r'$D_L$')
+        mlab.show()
+    
+    exit()
