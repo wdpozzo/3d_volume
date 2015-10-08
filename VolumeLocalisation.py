@@ -657,7 +657,7 @@ if __name__=='__main__':
         plt.savefig(os.path.join(out_dir, 'marg_log_sky_%d.pdf'%(eventID)))
         # make an equatorial equidistant projection map
         plt.figure()
-        m = Basemap(projection='aeqd', lon_0=round(lon_cen, 2), lat_0=0, resolution='c')
+        m = Basemap(projection='hammer', lon_0=round(lon_cen, 2), lat_0=0, resolution='c')
         m.drawcoastlines(linewidth=0.5, color='0.5')
         m.drawparallels(np.arange(-90,90,30), labels=[1,0,0,0], labelstyle='+/-', linewidth=0.1, dashes=[1,1], alpha=0.5)
         m.drawmeridians(np.arange(0,360,60), linewidth=0.1, dashes=[1,1], alpha=0.5)
@@ -668,7 +668,7 @@ if __name__=='__main__':
         if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='r', s=500, marker='+')
         cbar = m.colorbar(S,location='bottom',pad="5%")
         cbar.set_label(r"$\log(\mathrm{Probability})$")
-        plt.savefig(os.path.join(out_dir, 'marg_log_sky_aeqd_%d.pdf'%(eventID)))
+        plt.savefig(os.path.join(out_dir, 'marg_log_sky_hammer_%d.pdf'%(eventID)))
 #
         plt.figure()
         m = Basemap(projection='ortho', lon_0=round(lon_cen, 2), lat_0=lat_cen, resolution='c')
@@ -685,7 +685,7 @@ if __name__=='__main__':
         plt.savefig(os.path.join(out_dir, 'marg_sky_%d.pdf'%(eventID)))
 
         plt.figure()
-        m = Basemap(projection='aeqd', lon_0=round(lon_cen, 2), lat_0=0, resolution='c')
+        m = Basemap(projection='hammer', lon_0=round(lon_cen, 2), lat_0=0, resolution='c')
         m.drawcoastlines(linewidth=0.5, color='0.5')
         m.drawparallels(np.arange(-90,90,30), labels=[1,0,0,0], labelstyle='+/-', linewidth=0.1, dashes=[1,1], alpha=0.5)
         m.drawmeridians(np.arange(0,360,60), linewidth=0.1, dashes=[1,1], alpha=0.5)
@@ -696,7 +696,7 @@ if __name__=='__main__':
         if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='r', s=500, marker='+')
         cbar = m.colorbar(S,location='bottom',pad="5%")
         cbar.set_label(r"$\mathrm{probability}$ $\mathrm{density}$")
-        plt.savefig(os.path.join(out_dir, 'marg_sky_aeqd_%d.pdf'%(eventID)))
+        plt.savefig(os.path.join(out_dir, 'marg_sky_hammer_%d.pdf'%(eventID)))
 
         if options.plots:
             if options.catalog:
