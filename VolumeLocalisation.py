@@ -134,13 +134,13 @@ class DPGMMSkyPosterior(object):
 
     def evaluate_sky_map(self):
         dsquared = self.dD*self.grid[0]**2
-        self.skymap = np.tensordot(dsquared,self.volume_map,axes=([0],[0]))
+        self.skymap = np.trapz(self.volume_map, x=dsquared, axis=0)#np.tensordot(dsquared,self.volume_map,axes=([0],[0]))
         self.log_skymap = np.log(self.skymap)
 
     def evaluate_distance_map(self):
         cosdec = np.cos(self.grid[1])*self.dDEC
-        intermediate = np.tensordot(cosdec,self.volume_map,axes=([0],[1]))
-        self.distance_map = np.tensordot(self.grid[2]*self.dRA,intermediate,axes=([0],[1]))
+        intermediate = np.trapz(self.volume_map, x=cosdec, axis=1)#np.tensordot(cosdec,self.volume_map,axes=([0],[1]))
+        self.distance_map = np.trapz(intermediate, x=self.grid[2], axis=1)#np.tensordot(self.grid[2]*self.dRA,intermediate,axes=([0],[1]))
         self.log_distance_map = np.log(self.distance_map)
         self.distance_map/=(self.distance_map*np.diff(self.grid[0])[0]).sum()
 
@@ -650,7 +650,7 @@ if __name__=='__main__':
         m.drawmapboundary(linewidth=0.5, fill_color='white')
         X,Y = m(*np.meshgrid(lon_map, lat_map))
         plt.scatter(*m(lon_samp, lat_samp), color='k', s=0.1, lw=0)
-        S = m.contourf(X,Y,dpgmm.log_skymap,100,linestyles='-', hold='on',origin='lower', cmap='RdPu', s=2, lw=0)
+        S = m.contourf(X,Y,dpgmm.log_skymap,100,linestyles='-', hold='on',origin='lower', cmap='YlOrRd', s=2, lw=0, vmin = -10.0)
         if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='r', s=500, marker='+')
         cbar = m.colorbar(S,location='bottom',pad="5%")
         cbar.set_label(r"$\log(\mathrm{Probability})$")
@@ -664,7 +664,7 @@ if __name__=='__main__':
         m.drawmapboundary(linewidth=0.5, fill_color='white')
         X,Y = m(*np.meshgrid(lon_map, lat_map))
         plt.scatter(*m(lon_samp, lat_samp), color='k', s=0.1, lw=0)
-        S = m.contourf(X,Y,dpgmm.log_skymap,100,linestyles='-', hold='on',origin='lower', cmap='RdPu', s=2, lw=0)
+        S = m.contourf(X,Y,dpgmm.log_skymap,100,linestyles='-', hold='on',origin='lower', cmap='YlOrRd', s=2, lw=0, vmin = -10.0)
         if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='r', s=500, marker='+')
         cbar = m.colorbar(S,location='bottom',pad="5%")
         cbar.set_label(r"$\log(\mathrm{Probability})$")
@@ -678,7 +678,7 @@ if __name__=='__main__':
         m.drawmapboundary(linewidth=0.5, fill_color='white')
         X,Y = m(*np.meshgrid(lon_map, lat_map))
         plt.scatter(*m(lon_samp, lat_samp), color='k', s=0.1, lw=0)
-        S = m.contourf(X,Y,dpgmm.skymap,100,linestyles='-', hold='on',origin='lower', cmap='RdPu', s=2, lw=0)
+        S = m.contourf(X,Y,dpgmm.skymap,100,linestyles='-', hold='on', origin='lower', cmap='YlOrRd', s=2, lw=0, vmin = 0.0)
         if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='r', s=500, marker='+')
         cbar = m.colorbar(S,location='bottom',pad="5%")
         cbar.set_label(r"$\mathrm{probability}$ $\mathrm{density}$")
@@ -692,7 +692,7 @@ if __name__=='__main__':
         m.drawmapboundary(linewidth=0.5, fill_color='white')
         X,Y = m(*np.meshgrid(lon_map, lat_map))
         plt.scatter(*m(lon_samp, lat_samp), color='k', s=0.1, lw=0)
-        S = m.contourf(X,Y,dpgmm.skymap,100,linestyles='-', hold='on',origin='lower', cmap='RdPu', s=2, lw=0)
+        S = m.contourf(X,Y,dpgmm.skymap,100,linestyles='-', hold='on',origin='lower', cmap='YlOrRd', s=2, lw=0, vmin = 0.0)
         if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='r', s=500, marker='+')
         cbar = m.colorbar(S,location='bottom',pad="5%")
         cbar.set_label(r"$\mathrm{probability}$ $\mathrm{density}$")
@@ -772,7 +772,7 @@ if __name__=='__main__':
 
                 plt.savefig(os.path.join(out_dir, 'galaxies_marg_sky_%d.pdf'%(eventID)))
     # try to produce a volume plot
-    if 1:
+    if 0:
         sys.stderr.write("rendering 3D volume\n")
         from mayavi import mlab
         # Create a cartesian grid
@@ -792,7 +792,7 @@ if __name__=='__main__':
         X,Y,Z = np.meshgrid(x,y,z)
 #            O = mlab.pipeline.scalar_scatter([0.0],[0.0],[0.0], colormap="copper", scale_factor=.25, mode="sphere",opacity=0.5)
 #            mlab.contour3d(X,Y,Z,log_cartesian_map,contours=10)
-        mlab.pipeline.volume(mlab.pipeline.scalar_field(log_cartesian_map),vmin=min + 0.25 * (max - min),
+        mlab.pipeline.volume(mlab.pipeline.scalar_field(log_cartesian_map),vmin=min + 0.5 * (max - min),
                              vmax=min + 0.9 * (max - min))
 #        axes = mlab.axes(xlabel=r'$D_L$', ylabel=r'$D_L$', zlabel=r'$D_L$')
         mlab.show()
