@@ -134,12 +134,12 @@ class DPGMMSkyPosterior(object):
 
     def evaluate_sky_map(self):
         dsquared = self.dD*self.grid[0]**2
-        self.skymap = np.trapz(self.volume_map, x=dsquared, axis=0)#np.tensordot(dsquared,self.volume_map,axes=([0],[0]))
+        self.skymap = np.trapz(self.volume_map, x=self.grid[0], axis=0)#np.tensordot(dsquared,self.volume_map,axes=([0],[0]))
         self.log_skymap = np.log(self.skymap)
 
     def evaluate_distance_map(self):
         cosdec = np.cos(self.grid[1])*self.dDEC
-        intermediate = np.trapz(self.volume_map, x=cosdec, axis=1)#np.tensordot(cosdec,self.volume_map,axes=([0],[1]))
+        intermediate = np.trapz(self.volume_map, x=self.grid[1], axis=1)#np.tensordot(cosdec,self.volume_map,axes=([0],[1]))
         self.distance_map = np.trapz(intermediate, x=self.grid[2], axis=1)#np.tensordot(self.grid[2]*self.dRA,intermediate,axes=([0],[1]))
         self.log_distance_map = np.log(self.distance_map)
         self.distance_map/=(self.distance_map*np.diff(self.grid[0])[0]).sum()
