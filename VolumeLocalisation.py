@@ -53,6 +53,7 @@ class DPGMMSkyPosterior(object):
         catalog: the galaxy catalog for the ranked list of galaxies
         """
     def __init__(self,posterior_samples,dimension=3,max_sticks=16,bins=[10,10,10],dist_max=218,nthreads=None,injection=None,catalog=None):
+        np.random.seed(0)
         self.posterior_samples = np.array(posterior_samples)
         self.dims = 3
         self.max_sticks = max_sticks
@@ -74,7 +75,7 @@ class DPGMMSkyPosterior(object):
         self.model = DPGMM(self.dims)
         for point in self.posterior_samples:
             self.model.add(point)
-        self.model.setPrior()
+        self.model.setPrior(scale=np.prod(celestial_to_cartesian(np.array([self.dD,self.dDEC,self.dRA]))))
         self.model.setThreshold(1e-4)
         self.model.setConcGamma(1,1)
     
@@ -134,15 +135,13 @@ class DPGMMSkyPosterior(object):
 
     def evaluate_sky_map(self):
         dsquared = self.grid[0]**2
-#        print dsquared.shape
-#        print self.volume_map.shape
-        self.skymap = np.trapz(dsquared[:,None,None]*self.volume_map, x=self.grid[0], axis=0)#np.tensordot(dsquared,self.volume_map,axes=([0],[0]))
+        self.skymap = np.trapz(dsquared[:,None,None]*self.volume_map, x=self.grid[0], axis=0)
         self.log_skymap = np.log(self.skymap)
-
+    
     def evaluate_distance_map(self):
-        cosdec = np.cos(self.grid[1])#*self.dDEC
-        intermediate = np.trapz(cosdec[None,:,None]*self.volume_map, x=self.grid[1], axis=1)#np.tensordot(cosdec,self.volume_map,axes=([0],[1]))
-        self.distance_map = np.trapz(intermediate, x=self.grid[2], axis=1)#np.tensordot(self.grid[2]*self.dRA,intermediate,axes=([0],[1]))
+        cosdec = np.cos(self.grid[1])
+        intermediate = np.trapz(cosdec[None,:,None]*self.volume_map, x=self.grid[1], axis=1)
+        self.distance_map = np.trapz(intermediate, x=self.grid[2], axis=1)
         self.log_distance_map = np.log(self.distance_map)
         self.distance_map/=(self.distance_map*np.diff(self.grid[0])[0]).sum()
 
@@ -270,11 +269,8 @@ def solve_dpgmm(args):
         return (model.stickCap, -np.inf, model)
 
 def Jacobian(cartesian_vect):
-#    x,y,z = cartesian_vect[0],cartesian_vect[1],cartesian_vect[2]
-#    d = np.sqrt(x**2+y**2+z**2)
     d = np.sqrt(cartesian_vect.dot(cartesian_vect))
     d_sin_theta = np.sqrt(cartesian_vect[:-1].dot(cartesian_vect[:-1]))
-#    d_sin_theta = np.sqrt(x**2+y**2)
     return d*d_sin_theta
 
 # --------
@@ -652,10 +648,13 @@ if __name__=='__main__':
         m.drawmapboundary(linewidth=0.5, fill_color='white')
         X,Y = m(*np.meshgrid(lon_map, lat_map))
         plt.scatter(*m(lon_samp, lat_samp), color='k', s=0.1, lw=0)
-        S = m.contourf(X,Y,dpgmm.log_skymap,100,linestyles='-', hold='on',origin='lower', cmap='YlOrRd', s=2, lw=0, vmin = -10.0)
+        S = m.contourf(X,Y,dpgmm.log_skymap,10,linestyles='-', hold='on',origin='lower', cmap='YlOrRd', s=2, lw=0, vmin = -10.0)
         if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='r', s=500, marker='+')
         cbar = m.colorbar(S,location='bottom',pad="5%")
         cbar.set_label(r"$\log(\mathrm{Probability})$")
+        clevs1 = np.linspace(dpgmm.log_skymap.min(),dpgmm.log_skymap.max(),10)
+        cbar.set_ticks(clevs1[::1])
+        cbar.ax.set_xticklabels(clevs1[::1],rotation=90)
         plt.savefig(os.path.join(out_dir, 'marg_log_sky_%d.pdf'%(eventID)))
         # make an equatorial equidistant projection map
         plt.figure()
@@ -666,10 +665,13 @@ if __name__=='__main__':
         m.drawmapboundary(linewidth=0.5, fill_color='white')
         X,Y = m(*np.meshgrid(lon_map, lat_map))
         plt.scatter(*m(lon_samp, lat_samp), color='k', s=0.1, lw=0)
-        S = m.contourf(X,Y,dpgmm.log_skymap,100,linestyles='-', hold='on',origin='lower', cmap='YlOrRd', s=2, lw=0, vmin = -10.0)
+        S = m.contourf(X,Y,dpgmm.log_skymap,10,linestyles='-', hold='on',origin='lower', cmap='YlOrRd', s=2, lw=0, vmin = -10.0)
         if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='r', s=500, marker='+')
         cbar = m.colorbar(S,location='bottom',pad="5%")
         cbar.set_label(r"$\log(\mathrm{Probability})$")
+        clevs1 = np.linspace(dpgmm.log_skymap.min(),dpgmm.log_skymap.max(),10)
+        cbar.set_ticks(clevs1[::1])
+        cbar.ax.set_xticklabels(clevs1[::1],rotation=90)
         plt.savefig(os.path.join(out_dir, 'marg_log_sky_hammer_%d.pdf'%(eventID)))
 #
         plt.figure()
@@ -680,10 +682,13 @@ if __name__=='__main__':
         m.drawmapboundary(linewidth=0.5, fill_color='white')
         X,Y = m(*np.meshgrid(lon_map, lat_map))
         plt.scatter(*m(lon_samp, lat_samp), color='k', s=0.1, lw=0)
-        S = m.contourf(X,Y,dpgmm.skymap,100,linestyles='-', hold='on', origin='lower', cmap='YlOrRd', s=2, lw=0, vmin = 0.0)
+        S = m.contourf(X,Y,dpgmm.skymap,10,linestyles='-', hold='on', origin='lower', cmap='YlOrRd', s=2, lw=0, vmin = 0.0)
         if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='r', s=500, marker='+')
         cbar = m.colorbar(S,location='bottom',pad="5%")
         cbar.set_label(r"$\mathrm{probability}$ $\mathrm{density}$")
+        clevs1 = np.linspace(dpgmm.skymap.min(),dpgmm.skymap.max(),10)
+        cbar.set_ticks(clevs1[::1])
+        cbar.ax.set_xticklabels(clevs1[::1],rotation=90)
         plt.savefig(os.path.join(out_dir, 'marg_sky_%d.pdf'%(eventID)))
 
         plt.figure()
@@ -694,10 +699,13 @@ if __name__=='__main__':
         m.drawmapboundary(linewidth=0.5, fill_color='white')
         X,Y = m(*np.meshgrid(lon_map, lat_map))
         plt.scatter(*m(lon_samp, lat_samp), color='k', s=0.1, lw=0)
-        S = m.contourf(X,Y,dpgmm.skymap,100,linestyles='-', hold='on',origin='lower', cmap='YlOrRd', s=2, lw=0, vmin = 0.0)
+        S = m.contourf(X,Y,dpgmm.skymap,10,linestyles='-', hold='on',origin='lower', cmap='YlOrRd', s=2, lw=0, vmin = 0.0)
         if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='r', s=500, marker='+')
         cbar = m.colorbar(S,location='bottom',pad="5%")
         cbar.set_label(r"$\mathrm{probability}$ $\mathrm{density}$")
+        clevs1 = np.linspace(dpgmm.skymap.min(),dpgmm.skymap.max(),10)
+        cbar.set_ticks(clevs1[::1])
+        cbar.ax.set_xticklabels(clevs1[::1],rotation=90)
         plt.savefig(os.path.join(out_dir, 'marg_sky_hammer_%d.pdf'%(eventID)))
 
         if options.plots:
@@ -771,7 +779,6 @@ if __name__=='__main__':
                 if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='k', s=500, marker='+')
                 cbar = m.colorbar(S,location='bottom',pad="5%")
                 cbar.set_label(r"$\log(\mathrm{Probability})$")
-
                 plt.savefig(os.path.join(out_dir, 'galaxies_marg_sky_%d.pdf'%(eventID)))
     # try to produce a volume plot
     if 0:
