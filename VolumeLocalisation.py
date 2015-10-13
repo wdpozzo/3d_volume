@@ -128,18 +128,20 @@ class DPGMMSkyPosterior(object):
         N = self.bins[0]*self.bins[1]*self.bins[2]
         sys.stderr.write("computing log posterior for %d grid poinds\n"%N)
         sample_args = ((self.density,np.array((d,dec,ra))) for d in self.grid[0] for dec in self.grid[1] for ra in self.grid[2])
-        results = self.pool.imap(logPosterior, sample_args, chunksize = N/(self.nthreads * 16))
+        results = self.pool.imap(logPosterior, sample_args, chunksize = N/(self.nthreads * 32))
         self.log_volume_map = np.array([r for r in results]).reshape(self.bins[0],self.bins[1],self.bins[2])
         self.volume_map = np.exp(self.log_volume_map)
 
     def evaluate_sky_map(self):
-        dsquared = self.dD*self.grid[0]**2
-        self.skymap = np.trapz(self.volume_map, x=self.grid[0], axis=0)#np.tensordot(dsquared,self.volume_map,axes=([0],[0]))
+        dsquared = self.grid[0]**2
+#        print dsquared.shape
+#        print self.volume_map.shape
+        self.skymap = np.trapz(dsquared[:,None,None]*self.volume_map, x=self.grid[0], axis=0)#np.tensordot(dsquared,self.volume_map,axes=([0],[0]))
         self.log_skymap = np.log(self.skymap)
 
     def evaluate_distance_map(self):
-        cosdec = np.cos(self.grid[1])*self.dDEC
-        intermediate = np.trapz(self.volume_map, x=self.grid[1], axis=1)#np.tensordot(cosdec,self.volume_map,axes=([0],[1]))
+        cosdec = np.cos(self.grid[1])#*self.dDEC
+        intermediate = np.trapz(cosdec[None,:,None]*self.volume_map, x=self.grid[1], axis=1)#np.tensordot(cosdec,self.volume_map,axes=([0],[1]))
         self.distance_map = np.trapz(intermediate, x=self.grid[2], axis=1)#np.tensordot(self.grid[2]*self.dRA,intermediate,axes=([0],[1]))
         self.log_distance_map = np.log(self.distance_map)
         self.distance_map/=(self.distance_map*np.diff(self.grid[0])[0]).sum()
