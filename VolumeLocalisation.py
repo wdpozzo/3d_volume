@@ -52,7 +52,6 @@ class DPGMMSkyPosterior(object):
         catalog: the galaxy catalog for the ranked list of galaxies
         """
     def __init__(self,posterior_samples,dimension=3,max_sticks=16,bins=[10,10,10],dist_max=218,nthreads=None,injection=None,catalog=None,standard_cosmology=True):
-        np.random.seed(0)
         self.posterior_samples = np.array(posterior_samples)
         self.dims = 3
         self.max_sticks = max_sticks
@@ -80,9 +79,18 @@ class DPGMMSkyPosterior(object):
         self.model.setConcGamma(1,1)
     
     def _initialise_grid(self):
-        a = np.maximum(0.75*samples[:,0].min(),1.0)
-        b = np.minimum(1.25*samples[:,0].max(),self.distance_max)
-        self.grid = [np.linspace(a,b,self.bins[0]),np.linspace(-np.pi/2.0,np.pi/2.0,self.bins[1]),np.linspace(0.0,2.0*np.pi,self.bins[2])]
+        self.grid = []
+#        a = np.maximum(0.75*samples[:,0].min(),1.0)
+#        b = np.minimum(1.25*samples[:,0].max(),self.distance_max)
+        a = 0.0
+        b = self.distance_max
+        self.grid.append(np.linspace(a,b,self.bins[0]))
+        a = -np.pi/2.0
+        b = np.pi/2.0
+        self.grid.append(np.linspace(a,b,self.bins[1]))
+        a = 0.0
+        b = 2.0*np.pi
+        self.grid.append(np.linspace(a,b,self.bins[2]))
         self.dD = np.diff(self.grid[0])[0]
         self.dDEC = np.diff(self.grid[1])[0]
         self.dRA = np.diff(self.grid[2])[0]
@@ -268,7 +276,8 @@ def Posterior(args):
     return reduce(np.sum,Ps)*np.abs(np.cos(celestial_coordinates[2]))*celestial_coordinates[0]**2
 
 def solve_dpgmm(args):
-    (nc, model) = args
+    (nc, model_in) = args
+    model=DPGMM(model_in)
     for _ in xrange(nc-1): model.incStickCap()
     try:
         it = model.solve(iterCap=1024)
@@ -430,7 +439,6 @@ def cartesian_to_celestial(cartesian_vect):
     return spherical_vect
 
 def readGC(file,dpgmm,standard_cosmology=True):
-
     ra,dec,zs,zp =[],[],[],[]
     dl = []
     with open(file,'r') as f:
@@ -520,8 +528,9 @@ if __name__=='__main__':
     parser.add_option("-N", type="int", dest="ranks", help="number of ranked galaxies to list in output", default=1000)
     parser.add_option("--nsamps", type="int", dest="nsamps", help="number of posterior samples to utilise", default=None)
     parser.add_option("--cosmology", type="int", dest="cosmology", help="assume a lambda CDM cosmology", default=1)
+    parser.add_option("--3d", type="int", dest="threed", help="3d volume map", default=0)
     (options, args) = parser.parse_args()
-
+    np.random.seed(1)
     CLs = [0.1,0.2,0.25,0.3,0.4,0.5,0.6,0.68,0.7,0.75,0.8,0.9]
     input_file = options.input
     injFile = options.injfile
@@ -556,7 +565,7 @@ if __name__=='__main__':
     dD = (options.dmax-1.0)/options.bins[0]
     print 'The number of grid points in the sky is :',options.bins[1]*options.bins[2],'resolution = ',np.degrees(dRA)*np.degrees(dDEC), ' deg^2'
     print 'The number of grid points in distance is :',options.bins[0],'minimum resolution = ',dD,' Mpc'
-    print 'Total grid size is :',options.bins[1]*options.bins[2]*options.bins[0]
+    print 'Total grid size is :',options.bins[0]*options.bins[1]*options.bins[2]
     print 'Volume resolution is :',dD*dDEC*dRA,' Mpc^3'
 
     samps = []
@@ -634,8 +643,8 @@ if __name__=='__main__':
         lat_cen = lat_inj = np.degrees(dec_inj)
     else:
         gmst_deg = np.mod(np.degrees(np.array(gmst_rad)), 360)
-        lon_cen = np.degrees(np.mean(samples[:,2])) - np.mean(gmst_deg)
-        lat_cen = np.degrees(np.mean(samples[:,1]))
+        lon_cen = np.degrees(np.mean(samples[idx,2])) - np.mean(gmst_deg)
+        lat_cen = np.degrees(np.mean(samples[idx,1]))
 
     lon_samp = np.degrees(samples[idx,2]) - gmst_deg
     lat_samp = np.degrees(samples[idx,1])
@@ -643,6 +652,7 @@ if __name__=='__main__':
     ra_map,dec_map = dpgmm.grid[2],dpgmm.grid[1]
     lon_map = np.degrees(ra_map) - np.mean(gmst_deg)
     lat_map = np.degrees(dec_map)
+
     if options.plots:
         sys.stderr.write("producing sky maps \n")
         plt.figure()
@@ -660,48 +670,9 @@ if __name__=='__main__':
         m.drawmeridians(np.arange(0,360,60), linewidth=0.1, dashes=[1,1], alpha=0.5)
         m.drawmapboundary(linewidth=0.5, fill_color='white')
         X,Y = m(*np.meshgrid(lon_map, lat_map))
-        plt.scatter(*m(lon_samp, lat_samp), color='k', s=0.1, lw=0)
-        S = m.contourf(X,Y,dpgmm.log_skymap,[dpgmm.heights['0.25'],dpgmm.heights['0.5'],dpgmm.heights['0.75']],linestyles='-', hold='on',origin='lower', cmap='YlOrRd', s=2, lw=0)
+#        plt.scatter(*m(lon_samp, lat_samp), color='k', s=0.1, lw=0)
+        S = m.contourf(X,Y,dpgmm.skymap,100,linestyles='-', hold='on', origin='lower', cmap='YlOrRd', s=2, lw=0, vmin = 0.0)
         if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='r', s=500, marker='+')
-#        cbar = m.colorbar(S,location='bottom',pad="5%")
-#        cbar.set_label(r"$\log(\mathrm{Probability})$")
-#        clevs1 = np.linspace(dpgmm.log_skymap.min(),dpgmm.log_skymap.max(),10)
-#        cbar.set_ticks(clevs1[::1])
-#        cbar.ax.set_xticklabels(clevs1[::1],rotation=90)
-        plt.savefig(os.path.join(out_dir, 'marg_log_sky_%d.pdf'%(eventID)))
-        # make an equatorial equidistant projection map
-        plt.figure()
-        m = Basemap(projection='hammer', lon_0=round(lon_cen, 2), lat_0=0, resolution='c')
-        m.drawcoastlines(linewidth=0.5, color='0.5')
-        m.drawparallels(np.arange(-90,90,30), labels=[1,0,0,0], labelstyle='+/-', linewidth=0.1, dashes=[1,1], alpha=0.5)
-        m.drawmeridians(np.arange(0,360,60), linewidth=0.1, dashes=[1,1], alpha=0.5)
-        m.drawmapboundary(linewidth=0.5, fill_color='white')
-        X,Y = m(*np.meshgrid(lon_map, lat_map))
-        plt.scatter(*m(lon_samp, lat_samp), color='k', s=0.1, lw=0)
-        S = m.contourf(X,Y,dpgmm.log_skymap,[dpgmm.heights['0.25'],dpgmm.heights['0.5'],dpgmm.heights['0.75']],linestyles='-', hold='on',origin='lower', cmap='YlOrRd', s=2, lw=0)
-        if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='r', s=500, marker='+')
-#        cbar = m.colorbar(S,location='bottom',pad="5%")
-#        cbar.set_label(r"$\log(\mathrm{Probability})$")
-#        clevs1 = np.linspace(dpgmm.log_skymap.min(),dpgmm.log_skymap.max(),10)
-#        cbar.set_ticks(clevs1[::1])
-#        cbar.ax.set_xticklabels(clevs1[::1],rotation=90)
-        plt.savefig(os.path.join(out_dir, 'marg_log_sky_hammer_%d.pdf'%(eventID)))
-#
-        plt.figure()
-        m = Basemap(projection='ortho', lon_0=round(lon_cen, 2), lat_0=lat_cen, resolution='c')
-        m.drawcoastlines(linewidth=0.5, color='0.5')
-        m.drawparallels(np.arange(-90,90,30), labels=[1,0,0,0], labelstyle='+/-', linewidth=0.1, dashes=[1,1], alpha=0.5)
-        m.drawmeridians(np.arange(0,360,60), linewidth=0.1, dashes=[1,1], alpha=0.5)
-        m.drawmapboundary(linewidth=0.5, fill_color='white')
-        X,Y = m(*np.meshgrid(lon_map, lat_map))
-        plt.scatter(*m(lon_samp, lat_samp), color='k', s=0.1, lw=0)
-        S = m.contourf(X,Y,dpgmm.skymap,10,linestyles='-', hold='on', origin='lower', cmap='YlOrRd', s=2, lw=0, vmin = 0.0)
-        if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='r', s=500, marker='+')
-#        cbar = m.colorbar(S,location='bottom',pad="5%")
-#        cbar.set_label(r"$\mathrm{probability}$ $\mathrm{density}$")
-#        clevs1 = np.linspace(dpgmm.skymap.min(),dpgmm.skymap.max(),10)
-#        cbar.set_ticks(clevs1[::1])
-#        cbar.ax.set_xticklabels(clevs1[::1],rotation=90)
         plt.savefig(os.path.join(out_dir, 'marg_sky_%d.pdf'%(eventID)))
 
         plt.figure()
@@ -711,14 +682,9 @@ if __name__=='__main__':
         m.drawmeridians(np.arange(0,360,60), linewidth=0.1, dashes=[1,1], alpha=0.5)
         m.drawmapboundary(linewidth=0.5, fill_color='white')
         X,Y = m(*np.meshgrid(lon_map, lat_map))
-        plt.scatter(*m(lon_samp, lat_samp), color='k', s=0.1, lw=0)
-        S = m.contourf(X,Y,dpgmm.skymap,10,linestyles='-', hold='on',origin='lower', cmap='YlOrRd', s=2, lw=0, vmin = 0.0)
+#        plt.scatter(*m(lon_samp, lat_samp), color='k', s=0.1, lw=0)
+        S = m.contourf(X,Y,dpgmm.skymap,100,linestyles='-', hold='on',origin='lower', cmap='YlOrRd', s=2, lw=0, vmin = 0.0)
         if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='r', s=500, marker='+')
-#        cbar = m.colorbar(S,location='bottom',pad="5%")
-#        cbar.set_label(r"$\mathrm{probability}$ $\mathrm{density}$")
-#        clevs1 = np.linspace(dpgmm.skymap.min(),dpgmm.skymap.max(),10)
-#        cbar.set_ticks(clevs1[::1])
-#        cbar.ax.set_xticklabels(clevs1[::1],rotation=90)
         plt.savefig(os.path.join(out_dir, 'marg_sky_hammer_%d.pdf'%(eventID)))
 
         if options.plots:
@@ -803,12 +769,53 @@ if __name__=='__main__':
 #                cbar = m.colorbar(S,location='bottom',pad="5%")
 #                cbar.set_label(r"$\log(\mathrm{Probability})$")
                 plt.savefig(os.path.join(out_dir, 'galaxies_marg_sky_%d.pdf'%(eventID)))
-    # try to produce a volume plot
+
+    if options.threed:
+        # produce a volume plot
+
+        from skimage import measure
+        from mpl_toolkits.mplot3d import Axes3D
+        # Create a cartesian grid
+        N = 100
+        MAX = dpgmm.grid[0][-1]
+        x = np.linspace(-MAX,MAX,N)
+        y = np.linspace(-MAX,MAX,N)
+        z = np.linspace(-MAX,MAX,N)
+        sys.stderr.write("producing 3 dimensional maps\n")
+        sample_args = ((dpgmm.density,np.array((xi,yi,zi))) for xi in x for yi in y for zi in x)
+        results = dpgmm.pool.imap(logPosteriorCartesian, sample_args, chunksize = N**3/(dpgmm.nthreads * 16))
+        log_cartesian_map = np.array([r for r in results]).reshape(N,N,N)
+        log_cartesian_map[np.isinf(log_cartesian_map)] = np.nan
+        # create a normalized cumulative distribution
+        log_cartesian_sorted = np.sort(log_cartesian_map.flatten())[::-1]
+        log_cartesian_cum = cumulative.fast_log_cumulative(log_cartesian_sorted)
+        # find the indeces  corresponding to the given CLs
+        adLevels = np.ravel([0.1,0.5,0.9])
+        args = [(log_cartesian_sorted,log_cartesian_cum,level) for level in adLevels]
+        adHeights = dpgmm.pool.map(FindHeights,args)
+        heights = {str(lev):hei for lev,hei in zip(adLevels,adHeights)}
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        for lev,cmap,al in zip(['0.1','0.5','0.9'],['BrBG','YlOrBr','BuPu'],[0.9,0.3,0.1]):
+            verts, faces = measure.marching_cubes(np.exp(log_cartesian_map), np.exp(heights[lev]), spacing=(np.diff(x)[0],np.diff(y)[0],np.diff(z)[0]))
+            ax.plot_trisurf(verts[:, 0], verts[:,1], faces, verts[:, 2],
+                        cmap=cmap, alpha = al, antialiased=False, linewidth=0)
+#        ax.set_xlim([-MAX, MAX])
+#        ax.set_ylim([-MAX, MAX])
+#        ax.set_zlim([-MAX, MAX])
+
+        ax.set_xlabel(r"$D_L/\mathrm{Mpc}$")
+        ax.set_ylabel(r"$D_L/\mathrm{Mpc}$")
+        ax.set_zlabel(r"$D_L/\mathrm{Mpc}$")
+        plt.show()
+
+
+
     if 0:
         sys.stderr.write("rendering 3D volume\n")
         from mayavi import mlab
         # Create a cartesian grid
-        N = 100
+        N = 10
         MAX = dpgmm.grid[0][-1]
         x = np.linspace(-MAX,MAX,N)
         y = np.linspace(-MAX,MAX,N)
@@ -828,5 +835,4 @@ if __name__=='__main__':
                              vmax=min + 0.9 * (max - min))
 #        axes = mlab.axes(xlabel=r'$D_L$', ylabel=r'$D_L$', zlabel=r'$D_L$')
         mlab.show()
-    
-    exit()
+    sys.stderr.write("\n")
