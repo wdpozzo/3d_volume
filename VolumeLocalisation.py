@@ -82,14 +82,18 @@ class DPGMMSkyPosterior(object):
         self.grid = []
 #        a = np.maximum(0.75*samples[:,0].min(),1.0)
 #        b = np.minimum(1.25*samples[:,0].max(),self.distance_max)
-        a = 0.0
-        b = self.distance_max
+        a = 0.9*samples[:,0].min()#0.0
+        b = 1.1*samples[:,0].max()#self.distance_max
         self.grid.append(np.linspace(a,b,self.bins[0]))
         a = -np.pi/2.0
         b = np.pi/2.0
+        a = 1.1*samples[:,1].min()#0.0
+        b = 1.1*samples[:,1].max()
         self.grid.append(np.linspace(a,b,self.bins[1]))
         a = 0.0
         b = 2.0*np.pi
+        a = 0.9*samples[:,2].min()#0.0
+        b = 1.1*samples[:,2].max()
         self.grid.append(np.linspace(a,b,self.bins[2]))
         self.dD = np.diff(self.grid[0])[0]
         self.dDEC = np.diff(self.grid[1])[0]
@@ -156,8 +160,8 @@ class DPGMMSkyPosterior(object):
     
     def evaluate_distance_map(self):
         cosdec = np.cos(self.grid[1])
-        intermediate = np.trapz(cosdec[None,:,None]*self.volume_map, x=self.grid[1], axis=1)
-        self.distance_map = np.trapz(intermediate, x=self.grid[2], axis=1)
+        intermediate = np.trapz(self.volume_map, x=self.grid[2], axis=2)
+        self.distance_map = np.trapz(cosdec*intermediate, x=self.grid[1], axis=1)
         self.log_distance_map = np.log(self.distance_map)
         self.distance_map/=(self.distance_map*np.diff(self.grid[0])[0]).sum()
 
