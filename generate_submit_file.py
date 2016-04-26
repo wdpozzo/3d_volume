@@ -4,8 +4,7 @@ import optparse as op
 if __name__=="__main__":
     parser = op.OptionParser()
     parser.add_option("-f", "--folder", type="string", dest="folder", help="folder that contains inputs and will contain outputs")
-    parser.add_option("--nside", type="int", dest="nside", help="nside of healpix")
-    parser.add_option("--dr", type="int", dest="n_dist", help="number of bins in distance")
+    parser.add_option("-N", type="int", dest="ranks", help="number of galaxies to rank")
     parser.add_option("--dmax", type="float", dest="dmax", help="maximum distance (Mpc)")
     parser.add_option("--max-stick", type="int", dest="max_stick", help="maximum number of gaussian components")
     parser.add_option("-n", type="int", dest="nevents", help="number of events to analyse")
@@ -27,19 +26,19 @@ if __name__=="__main__":
         """%(options.PATH,options.logdir,options.logdir,options.logdir)
 
 
-    for i in range(0,options.nevents):
+    for i in range(1,options.nevents+1):
         # find the input file
         posterior_folder = os.path.join(options.folder,str(i),'post')
         allfiles = os.listdir(posterior_folder)
         for file in allfiles:
             if 'posterior' in file and 'B' not in file: posterior_file = file
-        input_file = os.path.join(posterior_folder,file)
+        input_file = os.path.join(posterior_folder,posterior_file)
         # find the injection file
         injections_file = os.path.join(options.folder,str(i),str(i)+'.xml')
         # setup the output folder
         output_file = os.path.join(options.folder,str(i),'skypos')
     
-        string +="arguments = -i %s -o %s --inj %s --dr %d -e %s --nside %d --max-stick %d --dmax %f\n"%(input_file,output_file,injections_file,options.n_dist,i,options.nside,options.max_stick,options.dmax)
+        string +="arguments = --catalog GLADE_1.0.txt -i %s -o %s --inj %s --bins 100,500,500 -e %s --max-stick %d --dmax %f -N %d\n"%(input_file,output_file,injections_file,i,options.max_stick,options.dmax,options.ranks)
         string+="accounting_group = ligo.dev.o1.cbc.pe.lalinference\n"
         string+="queue 1\n"
 
