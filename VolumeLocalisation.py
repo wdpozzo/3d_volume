@@ -87,8 +87,15 @@ class DPGMMSkyPosterior(object):
         self.grid.append(np.linspace(a,b,self.bins[0]))
         a = -np.pi/2.0
         b = np.pi/2.0
-        a = 1.1*samples[:,1].min()#0.0
-        b = 1.1*samples[:,1].max()
+        if samples[:,1].min()<0.0:
+            a = 1.1*samples[:,1].min()#0.0
+        else:
+            a = 0.9*samples[:,1].min()
+        if samples[:,1].max()<0.0:
+            b = 0.9*samples[:,1].max()#0.0
+        else:
+            b = 1.1*samples[:,1].max()
+
         self.grid.append(np.linspace(a,b,self.bins[1]))
         a = 0.0
         b = 2.0*np.pi
