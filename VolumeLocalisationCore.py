@@ -1,8 +1,7 @@
 #! /usr/bin/env python
 
 from __future__ import division
-import os, sys
-import numpy as np
+import os, sys, numpy as np
 import cPickle as pickle
 from dpgmm import *
 import copy
@@ -84,25 +83,25 @@ class DPGMMSkyPosterior(object):
         self.grid = []
 #        a = np.maximum(0.75*samples[:,0].min(),1.0)
 #        b = np.minimum(1.25*samples[:,0].max(),self.distance_max)
-        a = 0.9*self.posterior_samples[:,0].min()#0.0
-        b = 1.1*self.posterior_samples[:,0].max()#self.distance_max
+        a = 0.9*samples[:,0].min()#0.0
+        b = 1.1*samples[:,0].max()#self.distance_max
         self.grid.append(np.linspace(a,b,self.bins[0]))
         a = -np.pi/2.0
         b = np.pi/2.0
-        if self.posterior_samples[:,1].min()<0.0:
-            a = 1.1*self.posterior_samples[:,1].min()#0.0
+        if samples[:,1].min()<0.0:
+            a = 1.1*samples[:,1].min()#0.0
         else:
-            a = 0.9*self.posterior_samples[:,1].min()
-        if self.posterior_samples[:,1].max()<0.0:
-            b = 0.9*self.posterior_samples[:,1].max()#0.0
+            a = 0.9*samples[:,1].min()
+        if samples[:,1].max()<0.0:
+            b = 0.9*samples[:,1].max()#0.0
         else:
-            b = 1.1*self.posterior_samples[:,1].max()
+            b = 1.1*samples[:,1].max()
 
         self.grid.append(np.linspace(a,b,self.bins[1]))
         a = 0.0
         b = 2.0*np.pi
-        a = 0.9*self.posterior_samples[:,2].min()#0.0
-        b = 1.1*self.posterior_samples[:,2].max()
+        a = 0.9*samples[:,2].min()#0.0
+        b = 1.1*samples[:,2].max()
         self.grid.append(np.linspace(a,b,self.bins[2]))
         self.dD = np.diff(self.grid[0])[0]
         self.dDEC = np.diff(self.grid[1])[0]
@@ -155,7 +154,6 @@ class DPGMMSkyPosterior(object):
         sys.stderr.write("computing log posterior for %d grid points\n"%N)
         sample_args = ((self.density,np.array((d,dec,ra))) for d in self.grid[0] for dec in self.grid[1] for ra in self.grid[2])
         results = self.pool.imap(logPosterior, sample_args, chunksize = N/(self.nthreads * 32))
-        print [r for r in results]
         self.log_volume_map = np.array([r for r in results]).reshape(self.bins[0],self.bins[1],self.bins[2])
         self.volume_map = np.exp(self.log_volume_map)
         # normalise
