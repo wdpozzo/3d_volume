@@ -75,7 +75,7 @@ class DPGMMSkyPosterior(object):
         for point in self.posterior_samples:
             self.model.add(point)
         self.model.setPrior(mean = celestial_to_cartesian(np.mean(self.posterior_samples,axis=1)), scale=np.prod(celestial_to_cartesian(np.array([self.dD,self.dDEC,self.dRA]))))
-        sys.stderr.write("prior scale = %.5f\n"%(np.prod(celestial_to_cartesian(np.array([self.dD,self.dDEC,self.dRA])))))
+        sys.stderr.write("prior scale = %.5e\n"%(np.prod(celestial_to_cartesian(np.array([self.dD,self.dDEC,self.dRA])))))
         self.model.setThreshold(1e-4)
         self.model.setConcGamma(1,1)
     
