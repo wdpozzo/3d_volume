@@ -16,3 +16,16 @@ setup(
       ext_modules = cythonize(ext_modules),
       include_dirs=[numpy.get_include()]
       )
+
+ext_modules=[
+             Extension("utils",
+                       sources=["utils.pyx"],
+                       libraries=["m"] # Unix-like specific
+                       )
+             ]
+
+setup(
+      name = "utils",
+      ext_modules = cythonize(ext_modules),
+      include_dirs=[numpy.get_include()]
+      )
