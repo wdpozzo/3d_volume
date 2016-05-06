@@ -15,7 +15,6 @@ import multiprocessing as mp
 import copy_reg
 import types
 import cumulative
-from utils import *
 import matplotlib
 import time
 
@@ -75,7 +74,7 @@ class DPGMMSkyPosterior(object):
         for point in self.posterior_samples:
             self.model.add(point)
         self.model.setPrior(mean = celestial_to_cartesian(np.mean(self.posterior_samples,axis=1)), scale=np.prod(celestial_to_cartesian(np.array([self.dD,self.dDEC,self.dRA]))))
-        sys.stderr.write("prior scale = %.5f\n"%(np.prod(celestial_to_cartesian(np.array([self.dD,self.dDEC,self.dRA])))))
+        sys.stderr.write("prior scale = %.3f\n"%(np.prod(celestial_to_cartesian(np.array([self.dD,self.dDEC,self.dRA])))))
         self.model.setThreshold(1e-4)
         self.model.setConcGamma(1,1)
     
@@ -151,7 +150,7 @@ class DPGMMSkyPosterior(object):
     
     def evaluate_volume_map(self):
         N = self.bins[0]*self.bins[1]*self.bins[2]
-        sys.stderr.write("computing log posterior for %d grid points\n"%N)
+        sys.stderr.write("computing log posterior for %d grid poinds\n"%N)
         sample_args = ((self.density,np.array((d,dec,ra))) for d in self.grid[0] for dec in self.grid[1] for ra in self.grid[2])
         results = self.pool.imap(logPosterior, sample_args, chunksize = N/(self.nthreads * 32))
         self.log_volume_map = np.array([r for r in results]).reshape(self.bins[0],self.bins[1],self.bins[2])
@@ -192,7 +191,7 @@ class DPGMMSkyPosterior(object):
         if self.injection!=None:
             ra,dec = self.injection.get_ra_dec()
             distance = self.injection.distance
-            logPval = logPosterior((self.density,np.array((distance,dec,ra))))
+            logPval = self.logPosterior(np.array((distance,dec,ra)))
             confidence_level = np.exp(self.log_volume_map_cum[np.abs(self.log_volume_map_sorted-logPval).argmin()])
             height = FindHeights((self.log_volume_map_sorted,self.log_volume_map_cum,confidence_level))
             (index_d, index_dec, index_ra,) = np.where(self.log_volume_map>=height)
@@ -297,6 +296,11 @@ def solve_dpgmm(args):
     except:
         return (model.stickCap, -np.inf, model)
 
+def Jacobian(cartesian_vect):
+    d = np.sqrt(cartesian_vect.dot(cartesian_vect))
+    d_sin_theta = np.sqrt(cartesian_vect[:-1].dot(cartesian_vect[:-1]))
+    return d*d_sin_theta
+
 # --------
 # jacobian
 # --------
@@ -343,6 +347,107 @@ def FindLevelForHeight(inLogArr, logvalue):
 #---------
 # utilities
 #---------
+
+def eq2ang(ra, dec):
+    """
+    convert equatorial ra,dec in radians to angular theta, phi in radians
+    parameters
+    ----------
+    ra: scalar or array
+        Right ascension in radians
+    dec: scalar or array
+        Declination in radians
+    returns
+    -------
+    theta,phi: tuple
+        theta = pi/2-dec*D2R # in [0,pi]
+        phi   = ra*D2R       # in [0,2*pi]
+    """
+    phi = ra
+    theta = np.pi/2. - dec
+    return theta, phi
+
+def ang2eq(theta, phi):
+    """
+    convert angular theta, phi in radians to equatorial ra,dec in radians
+    ra = phi*R2D            # [0,360]
+    dec = (pi/2-theta)*R2D  # [-90,90]
+    parameters
+    ----------
+    theta: scalar or array
+        angular theta in radians
+    phi: scalar or array
+        angular phi in radians
+    returns
+    -------
+    ra,dec: tuple
+        ra  = phi*R2D          # in [0,360]
+        dec = (pi/2-theta)*R2D # in [-90,90]
+    """
+    
+    ra = phi
+    dec = np.pi/2. - theta
+    return ra, dec
+
+def cartesian_to_spherical(vector):
+    """Convert the Cartesian vector [x, y, z] to spherical coordinates [r, theta, phi].
+
+    The parameter r is the radial distance, theta is the polar angle, and phi is the azimuth.
+
+
+    @param vector:  The Cartesian vector [x, y, z].
+    @type vector:   numpy rank-1, 3D array
+    @return:        The spherical coordinate vector [r, theta, phi].
+    @rtype:         numpy rank-1, 3D array
+    """
+
+    # The radial distance.
+    r = np.linalg.norm(vector)
+
+    # Unit vector.
+    unit = vector / r
+
+    # The polar angle.
+    theta = np.arccos(unit[2])
+
+    # The azimuth.
+    phi = np.arctan2(unit[1], unit[0])
+
+    # Return the spherical coordinate vector.
+    return r, theta, phi
+
+
+def spherical_to_cartesian(spherical_vect):
+    """Convert the spherical coordinate vector [r, theta, phi] to the Cartesian vector [x, y, z].
+
+    The parameter r is the radial distance, theta is the polar angle, and phi is the azimuth.
+
+
+    @param spherical_vect:  The spherical coordinate vector [r, theta, phi].
+    @type spherical_vect:   3D array or list
+    @param cart_vect:       The Cartesian vector [x, y, z].
+    @type cart_vect:        3D array or list
+    """
+    cart_vect = np.zeros(3)
+    # Trig alias.
+    sin_theta = np.sin(spherical_vect[1])
+
+    # The vector.
+    cart_vect[0] = spherical_vect[0] * np.cos(spherical_vect[2]) * sin_theta
+    cart_vect[1] = spherical_vect[0] * np.sin(spherical_vect[2]) * sin_theta
+    cart_vect[2] = spherical_vect[0] * np.cos(spherical_vect[1])
+    return cart_vect
+
+def celestial_to_cartesian(celestial_vect):
+    """Convert the spherical coordinate vector [r, dec, ra] to the Cartesian vector [x, y, z]."""
+    celestial_vect[1]=np.pi/2. - celestial_vect[1]
+    return spherical_to_cartesian(celestial_vect)
+
+def cartesian_to_celestial(cartesian_vect):
+    """Convert the Cartesian vector [x, y, z] to the celestial coordinate vector [r, dec, ra]."""
+    spherical_vect = cartesian_to_spherical(cartesian_vect)
+    spherical_vect[1]=np.pi/2. - spherical_vect[1]
+    return spherical_vect
 
 def readGC(file,dpgmm,standard_cosmology=True):
     ra,dec,zs,zp =[],[],[],[]
@@ -742,4 +847,3 @@ if __name__=='__main__':
 #        axes = mlab.axes(xlabel=r'$D_L$', ylabel=r'$D_L$', zlabel=r'$D_L$')
         mlab.show()
     sys.stderr.write("\n")
-
