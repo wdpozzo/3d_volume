@@ -7,7 +7,8 @@ import numpy
 ext_modules=[
              Extension("cumulative",
                        sources=["cumulative.pyx"],
-                       libraries=["m"] # Unix-like specific
+                       libraries=["m"], # Unix-like specific
+                       include_dirs=[numpy.get_include()]
                        )
              ]
 
@@ -20,7 +21,8 @@ setup(
 ext_modules=[
              Extension("utils",
                        sources=["utils.pyx"],
-                       libraries=["m"] # Unix-like specific
+                       libraries=["m"], # Unix-like specific
+                       include_dirs=[numpy.get_include()]
                        )
              ]
 
