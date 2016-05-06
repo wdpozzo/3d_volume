@@ -73,8 +73,9 @@ class DPGMMSkyPosterior(object):
         self.model = DPGMM(self.dims)
         for point in self.posterior_samples:
             self.model.add(point)
-        self.model.setPrior(mean = celestial_to_cartesian(np.mean(self.posterior_samples,axis=1)), scale=np.prod(celestial_to_cartesian(np.array([self.dD,self.dDEC,self.dRA]))))
-        sys.stderr.write("prior scale = %.3f\n"%(np.prod(celestial_to_cartesian(np.array([self.dD,self.dDEC,self.dRA])))))
+        self.model.setPrior(mean = np.mean(self.posterior_samples,axis=0), scale=self.dD*self.dDEC*self.dRA)
+
+        sys.stderr.write("prior scale = %.5e\n"%(self.dD*self.dDEC*self.dRA))
         self.model.setThreshold(1e-4)
         self.model.setConcGamma(1,1)
     
@@ -150,7 +151,7 @@ class DPGMMSkyPosterior(object):
     
     def evaluate_volume_map(self):
         N = self.bins[0]*self.bins[1]*self.bins[2]
-        sys.stderr.write("computing log posterior for %d grid poinds\n"%N)
+        sys.stderr.write("computing log posterior for %d grid points\n"%N)
         sample_args = ((self.density,np.array((d,dec,ra))) for d in self.grid[0] for dec in self.grid[1] for ra in self.grid[2])
         results = self.pool.imap(logPosterior, sample_args, chunksize = N/(self.nthreads * 32))
         self.log_volume_map = np.array([r for r in results]).reshape(self.bins[0],self.bins[1],self.bins[2])
