@@ -38,7 +38,7 @@ if __name__=="__main__":
         # setup the output folder
         output_file = os.path.join(options.folder,str(i),'skypos')
     
-        string +="arguments = --catalog GLADE_1.0.txt -i %s -o %s --inj %s --bins 100,500,500 -e %s --max-stick %d --dmax %f -N %d\n"%(input_file,output_file,injections_file,i,options.max_stick,options.dmax,options.ranks)
+        string +="arguments = --catalog GLADE_1.0.txt -i %s -o %s --inj %s --bins 100,360,720 -e %s --max-stick %d --dmax %f -N %d\n"%(input_file,output_file,injections_file,i,options.max_stick,options.dmax,options.ranks)
         string+="accounting_group = ligo.dev.o1.cbc.pe.lalinference\n"
         string+="queue 1\n"
 

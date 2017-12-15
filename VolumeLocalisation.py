@@ -5,7 +5,7 @@ import os, sys, numpy as np
 import cPickle as pickle
 from dpgmm import *
 import copy
-import healpy as hp
+#import healpy as hp
 from scipy.misc import logsumexp
 import optparse as op
 import lal
@@ -16,6 +16,7 @@ import copy_reg
 import types
 import cumulative
 import matplotlib
+from matplotlib.ticker import MultipleLocator
 import time
 
 def _pickle_method(m):
@@ -74,7 +75,7 @@ class DPGMMSkyPosterior(object):
         for point in self.posterior_samples:
             self.model.add(point)
         self.model.setPrior(mean = celestial_to_cartesian(np.mean(self.posterior_samples,axis=1)), scale=np.prod(celestial_to_cartesian(np.array([self.dD,self.dDEC,self.dRA]))))
-        sys.stderr.write("prior scale = %.3f\n"%(np.prod(celestial_to_cartesian(np.array([self.dD,self.dDEC,self.dRA])))))
+        sys.stderr.write("prior scale = %.3e\n"%(np.prod(celestial_to_cartesian(np.array([self.dD,self.dDEC,self.dRA])))))
         self.model.setThreshold(1e-4)
         self.model.setConcGamma(1,1)
     
@@ -99,7 +100,7 @@ class DPGMMSkyPosterior(object):
         self.grid.append(np.linspace(a,b,self.bins[1]))
         a = 0.0
         b = 2.0*np.pi
-        a = 0.9*samples[:,2].min()#0.0
+        a = 0.9*samples[:,2].min()
         b = 1.1*samples[:,2].max()
         self.grid.append(np.linspace(a,b,self.bins[2]))
         self.dD = np.diff(self.grid[0])[0]
@@ -150,7 +151,7 @@ class DPGMMSkyPosterior(object):
     
     def evaluate_volume_map(self):
         N = self.bins[0]*self.bins[1]*self.bins[2]
-        sys.stderr.write("computing log posterior for %d grid poinds\n"%N)
+        sys.stderr.write("computing log posterior for %d grid points\n"%N)
         sample_args = ((self.density,np.array((d,dec,ra))) for d in self.grid[0] for dec in self.grid[1] for ra in self.grid[2])
         results = self.pool.imap(logPosterior, sample_args, chunksize = N/(self.nthreads * 32))
         self.log_volume_map = np.array([r for r in results]).reshape(self.bins[0],self.bins[1],self.bins[2])
@@ -186,9 +187,10 @@ class DPGMMSkyPosterior(object):
         for height in adHeights:
             (index_d, index_dec, index_ra,) = np.where(self.log_volume_map>=height)
             volumes.append(np.sum([self.grid[0][i_d]**2. *np.cos(self.grid[1][i_dec]) * self.dD * self.dRA * self.dDEC for i_d,i_dec in zip(index_d,index_dec)]))
+
         self.volume_confidence = np.array(volumes)
 
-        if self.injection!=None:
+        if self.injection is not None:
             ra,dec = self.injection.get_ra_dec()
             distance = self.injection.distance
             logPval = self.logPosterior(np.array((distance,dec,ra)))
@@ -220,7 +222,7 @@ class DPGMMSkyPosterior(object):
             areas.append(np.sum([self.dRA*np.cos(self.grid[1][i_dec])*self.dDEC for i_dec in index_dec])*(180.0/np.pi)**2.0)
         self.area_confidence = np.array(areas)
         
-        if self.injection!=None:
+        if self.injection is not None:
             ra,dec = self.injection.get_ra_dec()
             id_ra = np.abs(self.grid[2]-ra).argmin()
             id_dec = np.abs(self.grid[1]-dec).argmin()
@@ -538,7 +540,7 @@ if __name__=='__main__':
     parser.add_option("--plots", type="string", dest="plots", help="produce plots", default=False)
     parser.add_option("-N", type="int", dest="ranks", help="number of ranked galaxies to list in output", default=1000)
     parser.add_option("--nsamps", type="int", dest="nsamps", help="number of posterior samples to utilise", default=None)
-    parser.add_option("--cosmology", type="int", dest="cosmology", help="assume a lambda CDM cosmology", default=1)
+    parser.add_option("--cosmology", type="int", dest="cosmology", help="assume a lambda CDM cosmology?", default=True)
     parser.add_option("--3d", type="int", dest="threed", help="3d volume map", default=0)
     (options, args) = parser.parse_args()
     np.random.seed(1)
@@ -550,7 +552,7 @@ if __name__=='__main__':
     options.bins = np.array(options.bins,dtype=np.int)
     os.system('mkdir -p %s'%(out_dir))
   
-    if injFile!=None:
+    if injFile is not None:
         injections = SimInspiralUtils.ReadSimInspiralFromFiles([injFile])
         injection = injections[0]
         (ra_inj, dec_inj) = injection.get_ra_dec()
@@ -564,7 +566,7 @@ if __name__=='__main__':
 
     samples = np.genfromtxt(input_file,names=True)
 
-    # we are going to normalisa the distance between 0 and 1
+    # we are going to normalise the distance between 0 and 1
 
     if "dist" in samples.dtype.names:
         samples = np.column_stack((samples["dist"],samples["dec"],samples["ra"],samples["time"]))
@@ -577,7 +579,7 @@ if __name__=='__main__':
     print 'The number of grid points in the sky is :',options.bins[1]*options.bins[2],'resolution = ',np.degrees(dRA)*np.degrees(dDEC), ' deg^2'
     print 'The number of grid points in distance is :',options.bins[0],'minimum resolution = ',dD,' Mpc'
     print 'Total grid size is :',options.bins[0]*options.bins[1]*options.bins[2]
-    print 'Volume resolution is :',dD*dDEC*dRA,' Mpc^3'
+    print 'Minimum Volume resolution is :',dD*dDEC*dRA,' Mpc^3'
 
     samps = []
     gmst_rad = []
@@ -600,9 +602,14 @@ if __name__=='__main__':
                               injection=injection,
                               catalog=options.catalog,
                               standard_cosmology=options.cosmology)
+    try:
+        print "Restoring DPGMM model"
+        dpgmm.density = pickle.load(dpgmm.density, open(os.path.join(options.output,'dpgmm_model.p'), 'wb'))
+    except:
+        print "Failed, recomputing"
+        dpgmm.compute_dpgmm()
+        pickle.dump(dpgmm.density, open(os.path.join(options.output,'dpgmm_model.p'), 'wb'))
 
-    dpgmm.compute_dpgmm()
-    pickle.dump(dpgmm.density, open(os.path.join(options.output,'dpgmm_model.p'), 'wb'))
     if dpgmm.catalog is not None:
         dpgmm.rank_galaxies()
 
@@ -628,7 +635,7 @@ if __name__=='__main__':
 
         np.savetxt(os.path.join(options.output,'galaxy_in_confidence_regions.txt'), np.array([CLs,number_of_galaxies]).T, fmt='%.2f\t%d')
 
-        if dpgmm.injection!=None:
+        if dpgmm.injection is not None:
             threshold = dpgmm.injection_volume_height
             (k,) = np.where(dpgmm.ranked_probability>threshold)
             number_of_galaxies = len(k)
@@ -645,7 +652,7 @@ if __name__=='__main__':
         plt.ylabel(r"$\mathrm{probability}$ $\mathrm{density}$")
         plt.savefig(os.path.join(options.output,'distance_posterior.pdf'),bbox_inches='tight')
     np.savetxt(os.path.join(options.output,'confidence_levels.txt'), np.array([CLs, volumes, areas, distances]).T, fmt='%.2f\t%f\t%f\t%f')
-    if dpgmm.injection!=None: np.savetxt(os.path.join(options.output,'searched_quantities.txt'), np.array([searched_volume,searched_area,searched_distance]), fmt='%s\t%s')
+    if dpgmm.injection is not None: np.savetxt(os.path.join(options.output,'searched_quantities.txt'), np.array([searched_volume,searched_area,searched_distance]), fmt='%s\t%s')
 
     # dist_inj,ra_inj,dec_inj,tc
     if injFile is not None:
@@ -726,26 +733,27 @@ if __name__=='__main__':
                            fmt='%.9f\t%.9f\t%.9f\t%.9f\t%.9f\t%.9f\t',
                            header='ra[deg]\tdec[deg]\tDL[Mpc]\tz_spec\tz_phot\tlogposterior')
                 from mpl_toolkits.mplot3d import Axes3D
-                fig = plt.figure()
+                fig = plt.figure(figsize=(13.5,8))  # PRL default width
                 ax = fig.add_subplot(111, projection='3d')
-                ax.scatter([0.0],[0.0],[0.0],c='k',s=500,marker=r'$\bigoplus$',edgecolors='none')
-                S = ax.scatter(x[k],y[k],z[k],c=dpgmm.ranked_probability[k],s=500*(dpgmm.ranked_dl[k]/options.dmax)**2,marker='.',alpha=0.5,edgecolors='none')#,norm=matplotlib.colors.LogNorm()
-                ax.scatter(x[imax],y[imax],z[imax],c=dpgmm.ranked_probability[imax],s=128,marker='+')#,norm=matplotlib.colors.LogNorm()
-                fig.colorbar(S)
+                ax.scatter([0.0],[0.0],[0.0],c='k',s=200,marker=r'$\bigoplus$',edgecolors='none')
+                S = ax.scatter(x[k],y[k],z[k],c=dpgmm.ranked_probability[k],s=500*(dpgmm.ranked_dl[k]/options.dmax)**2,marker='o',edgecolors='none', cmap = plt.get_cmap("magma_r"))#,norm=matplotlib.colors.LogNorm()
+#                ax.scatter(x[imax],y[imax],z[imax],c=dpgmm.ranked_probability[imax],s=128,marker='+')#,norm=matplotlib.colors.LogNorm()
+                C = fig.colorbar(S)
+                C.set_label(r"$\mathrm{probability}$ $\mathrm{density}$")
                 
-                ax.plot(np.linspace(-MAX,MAX,100),np.zeros(100),color='k', zdir='y', zs=0.0)
-                ax.plot(np.linspace(-MAX,MAX,100),np.zeros(100),color='k', zdir='x', zs=0.0)
-                ax.plot(np.zeros(100),np.linspace(-MAX,MAX,100),color='k', zdir='y', zs=0.0)
+                ax.plot(np.linspace(-MAX,MAX,100),np.zeros(100),color='0.5', lw=0.7, zdir='y', zs=0.0)
+                ax.plot(np.linspace(-MAX,MAX,100),np.zeros(100),color='0.5', lw=0.7, zdir='x', zs=0.0)
+                ax.plot(np.zeros(100),np.linspace(-MAX,MAX,100),color='0.5', lw=0.7, zdir='y', zs=0.0)
 
-                ax.scatter(x[k], z[k], c = dpgmm.ranked_probability[k], zdir='y', zs=MAX,marker='.',alpha=0.5,edgecolors='none')
-                ax.scatter(y[k], z[k], c = dpgmm.ranked_probability[k], zdir='x', zs=-MAX,marker='.',alpha=0.5,edgecolors='none')
-                ax.scatter(x[k], y[k], c = dpgmm.ranked_probability[k], zdir='z', zs=-MAX,marker='.',alpha=0.5,edgecolors='none')
+#                ax.scatter(x[k], z[k], c = dpgmm.ranked_probability[k], zdir='y', zs=MAX,marker='.',alpha=0.5,edgecolors='none')
+#                ax.scatter(y[k], z[k], c = dpgmm.ranked_probability[k], zdir='x', zs=-MAX,marker='.',alpha=0.5,edgecolors='none')
+#                ax.scatter(x[k], y[k], c = dpgmm.ranked_probability[k], zdir='z', zs=-MAX,marker='.',alpha=0.5,edgecolors='none')
 
 
-                ax.scatter(x[imax],z[imax],c=dpgmm.ranked_probability[imax], zdir='y', zs=MAX,s=128,marker='+')
-                ax.scatter(y[imax],z[imax],c=dpgmm.ranked_probability[imax], zdir='x', zs=-MAX,s=128,marker='+')
-                ax.scatter(x[imax],y[imax],c=dpgmm.ranked_probability[imax], zdir='z', zs=-MAX,s=128,marker='+')
-                
+#                ax.scatter(x[imax],z[imax],c=dpgmm.ranked_probability[imax], zdir='y', zs=MAX,s=128,marker='+')
+#                ax.scatter(y[imax],z[imax],c=dpgmm.ranked_probability[imax], zdir='x', zs=-MAX,s=128,marker='+')
+#                ax.scatter(x[imax],y[imax],c=dpgmm.ranked_probability[imax], zdir='z', zs=-MAX,s=128,marker='+')
+
                 ax.set_xlim([-MAX, MAX])
                 ax.set_ylim([-MAX, MAX])
                 ax.set_zlim([-MAX, MAX])
@@ -754,9 +762,31 @@ if __name__=='__main__':
                 ax.set_ylabel(r"$D_L/\mathrm{Mpc}$")
                 ax.set_zlabel(r"$D_L/\mathrm{Mpc}$")
 
+                ax.view_init(elev=10, azim=135)
+                ax.grid(False)
+                ax.xaxis.pane.set_edgecolor('black')
+                ax.yaxis.pane.set_edgecolor('black')
+                ax.xaxis.pane.fill = False
+                ax.yaxis.pane.fill = False
+                ax.zaxis.pane.fill = False
+
+                [t.set_va('center') for t in ax.get_yticklabels()]
+                [t.set_ha('left') for t in ax.get_yticklabels()]
+                [t.set_va('center') for t in ax.get_xticklabels()]
+                [t.set_ha('right') for t in ax.get_xticklabels()]
+                [t.set_va('center') for t in ax.get_zticklabels()]
+                [t.set_ha('left') for t in ax.get_zticklabels()]
+                ax.xaxis._axinfo['tick']['inward_factor'] = 0
+                ax.xaxis._axinfo['tick']['outward_factor'] = 0.4
+                ax.yaxis._axinfo['tick']['inward_factor'] = 0
+                ax.yaxis._axinfo['tick']['outward_factor'] = 0.4
+                ax.zaxis._axinfo['tick']['inward_factor'] = 0
+                ax.zaxis._axinfo['tick']['outward_factor'] = 0.4
+                ax.zaxis._axinfo['tick']['outward_factor'] = 0.4
+
                 for ii in xrange(0,360,1):
                     sys.stderr.write("producing frame %03d\r"%ii)
-                    ax.view_init(elev=40., azim=ii)
+                    ax.view_init(elev=10., azim=ii)
                     plt.savefig(os.path.join(out_dir, 'galaxies_3d_scatter_%03d.png'%ii),dpi=200)
                 sys.stderr.write("\n")
                 
@@ -819,8 +849,6 @@ if __name__=='__main__':
         ax.set_ylabel(r"$D_L/\mathrm{Mpc}$")
         ax.set_zlabel(r"$D_L/\mathrm{Mpc}$")
         plt.show()
-
-
 
     if 0:
         sys.stderr.write("rendering 3D volume\n")
