@@ -5,7 +5,7 @@ import os, sys, numpy as np
 import cPickle as pickle
 from dpgmm import *
 import copy
-#import healpy as hp
+import healpy as hp
 from scipy.misc import logsumexp
 import optparse as op
 import lal
@@ -112,12 +112,27 @@ class DPGMMSkyPosterior(object):
 
     def compute_dpgmm(self):
         self._initialise_dpgmm()
+#        try:
+#            sys.stderr.write("Loading dpgmm model\n")
+#            self.model = pickle.load(open(os.path.join(options.output,'dpgmm_model.p'), 'rb'))
+#        except:
+#            sys.stderr.write("Model not found, recomputing\n")
         solve_args = [(nc, self.model) for nc in xrange(1, self.max_sticks+1)]
         solve_results = self.pool.map(solve_dpgmm, solve_args)
         self.scores = np.array([r[1] for r in solve_results])
         self.model = (solve_results[self.scores.argmax()][-1])
+        # pickle dump the dpgmm model
+        pickle.dump(self.model, open(os.path.join(options.output,'dpgmm_model.p'), 'wb'))
+        print dir(self.model)   
         print "best model has ",self.scores.argmax()+1,"components"
+#        try:
+#            sys.stderr.write("Loading density model\n")
+#            self.density = pickle.load(open(os.path.join(options.output,'dpgmm_density.p'), 'rb'))
+#        except:
+#            sys.stderr.write("Model density not found, recomputing\n")
         self.density = self.model.intMixture()
+            # pickle dump the dpgmm model densitys
+#            pickle.dump(self.density, open(os.path.join(options.output,'dpgmm_density.p'), 'wb'))
 
     def rank_galaxies(self):
         sys.stderr.write("Ranking the galaxies: computing log posterior for %d galaxies\n"%(self.catalog.shape[0]))
@@ -499,13 +514,7 @@ if __name__=='__main__':
                               injection=injection,
                               catalog=options.catalog,
                               standard_cosmology=options.cosmology)
-    try:
-        print "Restoring DPGMM model"
-        dpgmm.density = pickle.load(pen(os.path.join(options.output,'dpgmm_model.p'), 'wb'))
-    except:
-        print "Failed, recomputing"
-        dpgmm.compute_dpgmm()
-        pickle.dump(dpgmm.density, open(os.path.join(options.output,'dpgmm_model.p'), 'wb'))
+    dpgmm.compute_dpgmm()
 
     if dpgmm.catalog is not None:
         dpgmm.rank_galaxies()
