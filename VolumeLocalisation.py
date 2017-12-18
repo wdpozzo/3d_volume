@@ -76,27 +76,24 @@ class DPGMMSkyPosterior(object):
         for point in self.posterior_samples:
             self.model.add(point)
 
-        self.model.setPrior(mean = celestial_to_cartesian(np.mean(self.posterior_samples,axis=1)), scale=np.prod(celestial_to_cartesian(np.array([self.dD,self.dDEC,self.dRA]))))
+        self.model.setPrior(mean = celestial_to_cartesian(np.mean(self.posterior_samples,axis=1)))
         sys.stderr.write("prior scale = %.5e\n"%(np.prod(celestial_to_cartesian(np.array([self.dD,self.dDEC,self.dRA])))))
-
         self.model.setThreshold(1e-4)
         self.model.setConcGamma(1,1)
     
     def _initialise_grid(self):
         self.grid = []
-#        a = np.maximum(0.75*samples[:,0].min(),1.0)
-#        b = np.minimum(1.25*samples[:,0].max(),self.distance_max)
-        a = 0.9*samples[:,0].min()#0.0
-        b = 1.1*samples[:,0].max()#self.distance_max
+        a = 0.9*samples[:,0].min()
+        b = 1.1*samples[:,0].max()
         self.grid.append(np.linspace(a,b,self.bins[0]))
         a = -np.pi/2.0
         b = np.pi/2.0
         if samples[:,1].min()<0.0:
-            a = 1.1*samples[:,1].min()#0.0
+            a = 1.1*samples[:,1].min()
         else:
             a = 0.9*samples[:,1].min()
         if samples[:,1].max()<0.0:
-            b = 0.9*samples[:,1].max()#0.0
+            b = 0.9*samples[:,1].max()
         else:
             b = 1.1*samples[:,1].max()
 
@@ -112,27 +109,26 @@ class DPGMMSkyPosterior(object):
 
     def compute_dpgmm(self):
         self._initialise_dpgmm()
-#        try:
-#            sys.stderr.write("Loading dpgmm model\n")
-#            self.model = pickle.load(open(os.path.join(options.output,'dpgmm_model.p'), 'rb'))
-#        except:
-#            sys.stderr.write("Model not found, recomputing\n")
-        solve_args = [(nc, self.model) for nc in xrange(1, self.max_sticks+1)]
-        solve_results = self.pool.map(solve_dpgmm, solve_args)
-        self.scores = np.array([r[1] for r in solve_results])
-        self.model = (solve_results[self.scores.argmax()][-1])
-        # pickle dump the dpgmm model
-        pickle.dump(self.model, open(os.path.join(options.output,'dpgmm_model.p'), 'wb'))
-        print dir(self.model)   
-        print "best model has ",self.scores.argmax()+1,"components"
-#        try:
-#            sys.stderr.write("Loading density model\n")
-#            self.density = pickle.load(open(os.path.join(options.output,'dpgmm_density.p'), 'rb'))
-#        except:
-#            sys.stderr.write("Model density not found, recomputing\n")
-        self.density = self.model.intMixture()
+        try:
+            sys.stderr.write("Loading dpgmm model\n")
+            self.model = pickle.load(open(os.path.join(options.output,'dpgmm_model.p'), 'rb'))
+        except:
+            sys.stderr.write("Model not found, recomputing\n")
+            solve_args = [(nc, self.model) for nc in xrange(1, self.max_sticks+1)]
+            solve_results = self.pool.map(solve_dpgmm, solve_args)
+            self.scores = np.array([r[1] for r in solve_results])
+            self.model = (solve_results[self.scores.argmax()][-1])
+            # pickle dump the dpgmm model
+            pickle.dump(self.model, open(os.path.join(options.output,'dpgmm_model.p'), 'wb'))
+            print "best model has ",self.scores.argmax()+1,"components"
+        try:
+            sys.stderr.write("Loading density model\n")
+            self.density = pickle.load(open(os.path.join(options.output,'dpgmm_density.p'), 'rb'))
+        except:
+            sys.stderr.write("Model density not found, recomputing\n")
+            self.density = self.model.intMixture()
             # pickle dump the dpgmm model densitys
-#            pickle.dump(self.density, open(os.path.join(options.output,'dpgmm_density.p'), 'wb'))
+            pickle.dump(self.density, open(os.path.join(options.output,'dpgmm_density.p'), 'wb'))
 
     def rank_galaxies(self):
         sys.stderr.write("Ranking the galaxies: computing log posterior for %d galaxies\n"%(self.catalog.shape[0]))

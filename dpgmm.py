@@ -272,8 +272,8 @@ class DPGMM:
       ev = self.v[i,0] / self.v[i,:].sum()
       weights[i] = stick * ev
       stick *= 1.0 - ev
+
     weights[-1] = stick
-      
     return (weights, self.nT + [self.priorT])
   
   def prob(self, x):
