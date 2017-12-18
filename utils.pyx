@@ -7,7 +7,7 @@ from libc.math cimport sqrt,atan2,acos,sin,cos
 # utilities
 #---------
 
-cpdef inline eq2ang(double ra, double dec):
+cpdef  tuple eq2ang(double ra, double dec):
     """
     convert equatorial ra,dec in radians to angular theta, phi in radians
     parameters
@@ -26,7 +26,7 @@ cpdef inline eq2ang(double ra, double dec):
     cdef double theta = np.pi/2. - dec
     return theta, phi
 
-cpdef inline ang2eq(double theta, double phi):
+cpdef  tuple ang2eq(double theta, double phi):
     """
     convert angular theta, phi in radians to equatorial ra,dec in radians
     ra = phi*R2D            # [0,360]
@@ -48,7 +48,7 @@ cpdef inline ang2eq(double theta, double phi):
     cdef double dec = np.pi/2. - theta
     return ra, dec
 
-cpdef inline cartesian_to_spherical(np.ndarray[np.float64_t, ndim=1] vector):
+cpdef  tuple cartesian_to_spherical(np.ndarray[np.float64_t, ndim=1] vector):
     """Convert the Cartesian vector [x, y, z] to spherical coordinates [r, theta, phi].
 
     The parameter r is the radial distance, theta is the polar angle, and phi is the azimuth.
@@ -79,7 +79,7 @@ cpdef inline cartesian_to_spherical(np.ndarray[np.float64_t, ndim=1] vector):
     return r, theta, phi
 
 
-cpdef inline spherical_to_cartesian(np.ndarray[np.float64_t, ndim=1] spherical_vect):
+cpdef  np.ndarray[np.float64_t, ndim=1] spherical_to_cartesian(np.ndarray[np.float64_t, ndim=1] spherical_vect):
     """Convert the spherical coordinate vector [r, theta, phi] to the Cartesian vector [x, y, z].
 
     The parameter r is the radial distance, theta is the polar angle, and phi is the azimuth.
@@ -100,18 +100,18 @@ cpdef inline spherical_to_cartesian(np.ndarray[np.float64_t, ndim=1] spherical_v
     cart_vect[2] = spherical_vect[0] * cos(spherical_vect[1])
     return cart_vect
 
-cpdef inline celestial_to_cartesian(np.ndarray[np.float64_t, ndim=1] celestial_vect):
+cpdef  np.ndarray[np.float64_t, ndim=1] celestial_to_cartesian(np.ndarray[np.float64_t, ndim=1] celestial_vect):
     """Convert the spherical coordinate vector [r, dec, ra] to the Cartesian vector [x, y, z]."""
     celestial_vect[1]=np.pi/2. - celestial_vect[1]
     return spherical_to_cartesian(celestial_vect)
 
-cpdef inline cartesian_to_celestial(np.ndarray[np.float64_t, ndim=1] cartesian_vect):
+cpdef  np.ndarray[np.float64_t, ndim=1] cartesian_to_celestial(np.ndarray[np.float64_t, ndim=1] cartesian_vect):
     """Convert the Cartesian vector [x, y, z] to the celestial coordinate vector [r, dec, ra]."""
     spherical_vect = cartesian_to_spherical(cartesian_vect)
     spherical_vect[1]=np.pi/2. - spherical_vect[1]
     return spherical_vect
 
-cpdef inline Jacobian(np.ndarray[np.float64_t, ndim=1] cartesian_vect):
+cpdef  double Jacobian(np.ndarray[np.float64_t, ndim=1] cartesian_vect):
     d = sqrt(cartesian_vect.dot(cartesian_vect))
     d_sin_theta = sqrt(cartesian_vect[:-1].dot(cartesian_vect[:-1]))
     return d*d_sin_theta

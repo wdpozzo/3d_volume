@@ -501,7 +501,7 @@ if __name__=='__main__':
                               standard_cosmology=options.cosmology)
     try:
         print "Restoring DPGMM model"
-        dpgmm.density = pickle.load(dpgmm.density, open(os.path.join(options.output,'dpgmm_model.p'), 'wb'))
+        dpgmm.density = pickle.load(pen(os.path.join(options.output,'dpgmm_model.p'), 'wb'))
     except:
         print "Failed, recomputing"
         dpgmm.compute_dpgmm()
@@ -630,10 +630,17 @@ if __name__=='__main__':
                            fmt='%.9f\t%.9f\t%.9f\t%.9f\t%.9f\t%.9f\t',
                            header='ra[deg]\tdec[deg]\tDL[Mpc]\tz_spec\tz_phot\tlogposterior')
                 from mpl_toolkits.mplot3d import Axes3D
-                fig = plt.figure(figsize=(13.5,8))  # PRL default width
+#                fig = plt.figure(figsize=(13.5,8))  # PRL default width
+                fig = plt.figure(figsize=(13.5,9))
                 ax = fig.add_subplot(111, projection='3d')
+                # draw sphere
+                u, v = np.mgrid[0:2*np.pi:100j, 0:np.pi:100j]
+                xs = MAX*np.cos(u)*np.sin(v)
+                ys = MAX*np.sin(u)*np.sin(v)
+                zs = MAX*np.cos(v)
+                ax.plot_wireframe(xs, ys, zs, color="0.95", alpha=0.5, lw=0.5)
                 ax.scatter([0.0],[0.0],[0.0],c='k',s=200,marker=r'$\bigoplus$',edgecolors='none')
-                S = ax.scatter(x[k],y[k],z[k],c=dpgmm.ranked_probability[k],s=500*(dpgmm.ranked_dl[k]/options.dmax)**2,marker='o',edgecolors='none', cmap = plt.get_cmap("magma_r"))#,norm=matplotlib.colors.LogNorm()
+                S = ax.scatter(x[k],y[k],z[k],c=dpgmm.ranked_probability[k],s=1000*(dpgmm.ranked_dl[k]/options.dmax)**2,marker='o',edgecolors='none', cmap = plt.get_cmap("magma_r"))#,norm=matplotlib.colors.LogNorm()
 #                ax.scatter(x[imax],y[imax],z[imax],c=dpgmm.ranked_probability[imax],s=128,marker='+')#,norm=matplotlib.colors.LogNorm()
                 C = fig.colorbar(S)
                 C.set_label(r"$\mathrm{probability}$ $\mathrm{density}$")
@@ -684,7 +691,7 @@ if __name__=='__main__':
                 for ii in xrange(0,360,1):
                     sys.stderr.write("producing frame %03d\r"%ii)
                     ax.view_init(elev=10., azim=ii)
-                    plt.savefig(os.path.join(out_dir, 'galaxies_3d_scatter_%03d.png'%ii),dpi=200)
+                    plt.savefig(os.path.join(out_dir, 'galaxies_3d_scatter_%03d.png'%ii),dpi=300)
                 sys.stderr.write("\n")
                 
                 # make an animation
@@ -728,48 +735,43 @@ if __name__=='__main__':
         log_cartesian_sorted = np.sort(log_cartesian_map.flatten())[::-1]
         log_cartesian_cum = cumulative.fast_log_cumulative(log_cartesian_sorted)
         # find the indeces  corresponding to the given CLs
-        adLevels = np.ravel([0.1,0.5,0.9])
+        adLevels = np.ravel([0.05,0.5,0.95])
         args = [(log_cartesian_sorted,log_cartesian_cum,level) for level in adLevels]
         adHeights = dpgmm.pool.map(FindHeights,args)
         heights = {str(lev):hei for lev,hei in zip(adLevels,adHeights)}
-        fig = plt.figure()
+        
+        fig = plt.figure(figsize=(13.5,8))
         ax = fig.add_subplot(111, projection='3d')
-        for lev,cmap,al in zip(['0.1','0.5','0.9'],['BrBG','YlOrBr','BuPu'],[0.9,0.3,0.1]):
-            verts, faces = measure.marching_cubes(np.exp(log_cartesian_map), np.exp(heights[lev]), spacing=(np.diff(x)[0],np.diff(y)[0],np.diff(z)[0]))
+        ax.view_init(elev=45, azim=75)
+        for lev,cmap,al in zip(['0.05','0.5','0.95'],['BrBG','YlOrBr','BuPu'],[0.9,0.3,0.1]):
+            verts, faces, normals, values = measure.marching_cubes(np.exp(log_cartesian_map), np.exp(heights[lev]), spacing=(np.diff(x)[0],np.diff(y)[0],np.diff(z)[0]))
             ax.plot_trisurf(verts[:, 0], verts[:,1], faces, verts[:, 2],
                         cmap=cmap, alpha = al, antialiased=False, linewidth=0)
-#        ax.set_xlim([-MAX, MAX])
-#        ax.set_ylim([-MAX, MAX])
-#        ax.set_zlim([-MAX, MAX])
+        
+        ax.grid(False)
+        ax.xaxis.pane.set_edgecolor('black')
+        ax.yaxis.pane.set_edgecolor('black')
+        ax.xaxis.pane.fill = False
+        ax.yaxis.pane.fill = False
+        ax.zaxis.pane.fill = False
 
+        [t.set_va('center') for t in ax.get_yticklabels()]
+        [t.set_ha('left') for t in ax.get_yticklabels()]
+        [t.set_va('center') for t in ax.get_xticklabels()]
+        [t.set_ha('right') for t in ax.get_xticklabels()]
+        [t.set_va('center') for t in ax.get_zticklabels()]
+        [t.set_ha('left') for t in ax.get_zticklabels()]
+        ax.xaxis._axinfo['tick']['inward_factor'] = 0
+        ax.xaxis._axinfo['tick']['outward_factor'] = 0.4
+        ax.yaxis._axinfo['tick']['inward_factor'] = 0
+        ax.yaxis._axinfo['tick']['outward_factor'] = 0.4
+        ax.zaxis._axinfo['tick']['inward_factor'] = 0
+        ax.zaxis._axinfo['tick']['outward_factor'] = 0.4
+        ax.zaxis._axinfo['tick']['outward_factor'] = 0.4
+        
         ax.set_xlabel(r"$D_L/\mathrm{Mpc}$")
         ax.set_ylabel(r"$D_L/\mathrm{Mpc}$")
         ax.set_zlabel(r"$D_L/\mathrm{Mpc}$")
-        plt.show()
+        plt.savefig(os.path.join(out_dir, 'posterior_volume_%d.pdf'%(eventID)))
 
-    if 0:
-        sys.stderr.write("rendering 3D volume\n")
-        from mayavi import mlab
-        # Create a cartesian grid
-        N = 10
-        MAX = dpgmm.grid[0][-1]
-        x = np.linspace(-MAX,MAX,N)
-        y = np.linspace(-MAX,MAX,N)
-        z = np.linspace(-MAX,MAX,N)
-        sample_args = ((dpgmm.density,np.array((xi,yi,zi))) for xi in x for yi in y for zi in x)
-        results = dpgmm.pool.imap(logPosteriorCartesian, sample_args, chunksize = N**3/(dpgmm.nthreads * 16))
-        log_cartesian_map = np.array([r for r in results]).reshape(N,N,N)
-        log_cartesian_map[np.isinf(log_cartesian_map)] = np.nan
-        min = log_cartesian_map.min()
-        max = log_cartesian_map.max()
-        mlab.figure(1, bgcolor=(1, 1, 1), fgcolor=(0, 0, 0), size=(1000, 1000))
-        mlab.clf()
-        X,Y,Z = np.meshgrid(x,y,z)
-#            O = mlab.pipeline.scalar_scatter([0.0],[0.0],[0.0], colormap="copper", scale_factor=.25, mode="sphere",opacity=0.5)
-#            mlab.contour3d(X,Y,Z,log_cartesian_map,contours=10)
-        mlab.pipeline.volume(mlab.pipeline.scalar_field(log_cartesian_map),vmin=min + 0.5 * (max - min),
-                             vmax=min + 0.9 * (max - min))
-#        axes = mlab.axes(xlabel=r'$D_L$', ylabel=r'$D_L$', zlabel=r'$D_L$')
-        mlab.show()
     sys.stderr.write("\n")
-
