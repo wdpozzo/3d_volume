@@ -54,19 +54,18 @@ class DPGMMSkyPosterior(object):
         catalog: the galaxy catalog for the ranked list of galaxies
         """
     def __init__(self,posterior_samples,dimension=3,max_sticks=16,bins=[10,10,10],dist_max=218,nthreads=None,injection=None,catalog=None,standard_cosmology=True):
-        self.posterior_samples = np.array(posterior_samples)
-        self.dims = 3
-        self.max_sticks = max_sticks
+        self.posterior_samples  = np.array(posterior_samples)
+        self.dims               = dimension
+        self.max_sticks         = max_sticks
         if nthreads == None:
             self.nthreads = mp.cpu_count()
         else:
             self.nthreads = nthreads
-        self.bins = bins
-        self.dist_max = dist_max
-        self.pool = mp.Pool(self.nthreads)
-        self.injection = injection
-        self.distance_max=dist_max
-        self.catalog = None
+        self.bins               = bins
+        self.dist_max           = dist_max
+        self.pool               = mp.Pool(self.nthreads)
+        self.injection          = injection
+        self.catalog            = None
         self._initialise_grid()
         if catalog is not None:
             self.catalog = readGC(catalog,self,standard_cosmology=standard_cosmology)
@@ -77,38 +76,36 @@ class DPGMMSkyPosterior(object):
             self.model.add(point)
 
         self.model.setPrior(mean = celestial_to_cartesian(np.mean(self.posterior_samples,axis=1)))
-        sys.stderr.write("prior scale = %.5e\n"%(np.prod(celestial_to_cartesian(np.array([self.dD,self.dDEC,self.dRA])))))
         self.model.setThreshold(1e-4)
         self.model.setConcGamma(1,1)
     
     def _initialise_grid(self):
-        self.grid = []
-        a = 0.9*samples[:,0].min()
-        b = 1.1*samples[:,0].max()
+        self.grid   = []
+        a           = 0.9*samples[:,0].min()
+        b           = 1.1*samples[:,0].max()
         self.grid.append(np.linspace(a,b,self.bins[0]))
-        a = -np.pi/2.0
-        b = np.pi/2.0
-        if samples[:,1].min()<0.0:
+        a           = -np.pi/2.0
+        b           = np.pi/2.0
+        if samples[:,1].min() < 0.0:
             a = 1.1*samples[:,1].min()
         else:
             a = 0.9*samples[:,1].min()
-        if samples[:,1].max()<0.0:
+        if samples[:,1].max() < 0.0:
             b = 0.9*samples[:,1].max()
         else:
             b = 1.1*samples[:,1].max()
 
         self.grid.append(np.linspace(a,b,self.bins[1]))
-        a = 0.0
-        b = 2.0*np.pi
-        a = 0.9*samples[:,2].min()
-        b = 1.1*samples[:,2].max()
+        a   = 0.0
+        b   = 2.0*np.pi
+        a   = 0.9*samples[:,2].min()
+        b   = 1.1*samples[:,2].max()
         self.grid.append(np.linspace(a,b,self.bins[2]))
-        self.dD = np.diff(self.grid[0])[0]
-        self.dDEC = np.diff(self.grid[1])[0]
-        self.dRA = np.diff(self.grid[2])[0]
-        dRA = 2.0*np.pi/options.bins[2]
-        dDEC = np.pi/options.bins[1]
-        dD = (options.dmax-1.0)/options.bins[0]
+
+        self.dD     = np.diff(self.grid[0])[0]
+        self.dDEC   = np.diff(self.grid[1])[0]
+        self.dRA    = np.diff(self.grid[2])[0]
+
         print 'The number of grid points in the sky is :',self.bins[1]*self.bins[2],'resolution = ',np.degrees(self.dRA)*np.degrees(self.dDEC), ' deg^2'
         print 'The number of grid points in distance is :',self.bins[0],'minimum resolution = ',self.dD,' Mpc'
         print 'Total grid size is :',self.bins[0]*self.bins[1]*self.bins[2]
@@ -121,10 +118,10 @@ class DPGMMSkyPosterior(object):
             self.model = pickle.load(open(os.path.join(options.output,'dpgmm_model.p'), 'rb'))
         except:
             sys.stderr.write("Model not found, recomputing\n")
-            solve_args = [(nc, self.model) for nc in xrange(1, self.max_sticks+1)]
-            solve_results = self.pool.map(solve_dpgmm, solve_args)
-            self.scores = np.array([r[1] for r in solve_results])
-            self.model = (solve_results[self.scores.argmax()][-1])
+            solve_args      = [(nc, self.model) for nc in xrange(1, self.max_sticks+1)]
+            solve_results   = self.pool.map(solve_dpgmm, solve_args)
+            self.scores     = np.array([r[1] for r in solve_results])
+            self.model      = (solve_results[self.scores.argmax()][-1])
             # pickle dump the dpgmm model
             pickle.dump(self.model, open(os.path.join(options.output,'dpgmm_model.p'), 'wb'))
             print "best model has ",self.scores.argmax()+1,"components"
@@ -138,89 +135,82 @@ class DPGMMSkyPosterior(object):
             pickle.dump(self.density, open(os.path.join(options.output,'dpgmm_density.p'), 'wb'))
 
     def rank_galaxies(self):
-        sys.stderr.write("Ranking the galaxies: computing log posterior for %d galaxies\n"%(self.catalog.shape[0]))
-        jobs = ((self.density,np.array((d,dec,ra))) for d,dec,ra in zip(self.catalog[:,2],self.catalog[:,1],self.catalog[:,0]))
-        results = self.pool.imap(logPosterior ,jobs,  chunksize = np.int(self.catalog.shape[0]/ (self.nthreads * 16)))
-        logProbs = np.array([r for r in results])
-
-        idx = ~np.isnan(logProbs)
-        self.ranked_probability = logProbs[idx]
-        self.ranked_ra = self.catalog[idx,0]
-        self.ranked_dec = self.catalog[idx,1]
-        self.ranked_dl = self.catalog[idx,2]
-        self.ranked_zs = self.catalog[idx,3]
-        self.ranked_zp = self.catalog[idx,4]
         
-        order = self.ranked_probability.argsort()[::-1]
+        sys.stderr.write("Ranking the galaxies: computing log posterior for %d galaxies\n"%(self.catalog.shape[0]))
+        jobs        = ((self.density,np.array((d,dec,ra))) for d, dec, ra in zip(self.catalog[:,2],self.catalog[:,1],self.catalog[:,0]))
+        results     = self.pool.imap(logPosterior, jobs, chunksize = np.int(self.catalog.shape[0]/ (self.nthreads * 16)))
+        logProbs    = np.array([r for r in results])
+
+        idx         = ~np.isnan(logProbs)
+        self.ranked_probability = logProbs[idx]
+        self.ranked_ra          = self.catalog[idx,0]
+        self.ranked_dec         = self.catalog[idx,1]
+        self.ranked_dl          = self.catalog[idx,2]
+        self.ranked_zs          = self.catalog[idx,3]
+        self.ranked_zp          = self.catalog[idx,4]
+        
+        order                   = self.ranked_probability.argsort()[::-1]
         
         self.ranked_probability = self.ranked_probability[order]
-        self.ranked_ra = self.ranked_ra[order]
-        self.ranked_dec = self.ranked_dec[order]
-        self.ranked_dl = self.ranked_dl[order]
-        self.ranked_zs = self.ranked_zs[order]
-        self.ranked_zp = self.ranked_zp[order]
-    
-    def logPosterior(self,celestial_coordinates):
-        cartesian_vect = celestial_to_cartesian(celestial_coordinates)
-        logPs = [np.log(self.density[0][ind])+prob.logProb(cartesian_vect) for ind,prob in enumerate(self.density[1])]
-        return logsumexp(logPs)+np.log(Jacobian(cartesian_vect))
-
-    def Posterior(self,celestial_coordinates):
-        cartesian_vect = celestial_to_cartesian(celestial_coordinates)
-        Ps = [self.density[0][ind]*prob.prob(cartesian_vect) for ind,prob in enumerate(self.density[1])]
-        return reduce(np.sum,Ps)*Jacobian(cartesian_vect)
+        self.ranked_ra          = self.ranked_ra[order]
+        self.ranked_dec         = self.ranked_dec[order]
+        self.ranked_dl          = self.ranked_dl[order]
+        self.ranked_zs          = self.ranked_zs[order]
+        self.ranked_zp          = self.ranked_zp[order]
     
     def evaluate_volume_map(self):
         N = self.bins[0]*self.bins[1]*self.bins[2]
         sys.stderr.write("computing log posterior for %d grid points\n"%N)
-        sample_args = ((self.density,np.array((d,dec,ra))) for d in self.grid[0] for dec in self.grid[1] for ra in self.grid[2])
-        results = self.pool.imap(logPosterior, sample_args, chunksize = N/(self.nthreads * 32))
+        sample_args         = ((self.density,np.array((d,dec,ra))) for d in self.grid[0] for dec in self.grid[1] for ra in self.grid[2])
+        results             = self.pool.imap(logPosterior, sample_args, chunksize = N/(self.nthreads * 32))
         self.log_volume_map = np.array([r for r in results]).reshape(self.bins[0],self.bins[1],self.bins[2])
-        self.volume_map = np.exp(self.log_volume_map)
+        self.volume_map     = np.exp(self.log_volume_map)
         # normalise
-        dsquared = self.grid[0]**2
-        cosdec = np.cos(self.grid[1])
-        self.volume_map/=np.sum(self.volume_map*dsquared[:,None,None]*cosdec[None,:,None]*self.dD*self.dRA*self.dDEC)
+        dsquared         = self.grid[0]**2
+        cosdec           = np.cos(self.grid[1])
+        self.volume_map /= np.sum(self.volume_map*dsquared[:,None,None]*cosdec[None,:,None]*self.dD*self.dRA*self.dDEC)
 
     def evaluate_sky_map(self):
-        dsquared = self.grid[0]**2
-        self.skymap = np.trapz(dsquared[:,None,None]*self.volume_map, x=self.grid[0], axis=0)
+        dsquared        = self.grid[0]**2
+        self.skymap     = np.trapz(dsquared[:,None,None]*self.volume_map, x=self.grid[0], axis=0)
         self.log_skymap = np.log(self.skymap)
     
     def evaluate_distance_map(self):
-        cosdec = np.cos(self.grid[1])
-        intermediate = np.trapz(self.volume_map, x=self.grid[2], axis=2)
-        self.distance_map = np.trapz(cosdec*intermediate, x=self.grid[1], axis=1)
-        self.log_distance_map = np.log(self.distance_map)
-        self.distance_map/=(self.distance_map*np.diff(self.grid[0])[0]).sum()
+        cosdec                  = np.cos(self.grid[1])
+        intermediate            = np.trapz(self.volume_map, x=self.grid[2], axis=2)
+        self.distance_map       = np.trapz(cosdec*intermediate, x=self.grid[1], axis=1)
+        self.log_distance_map   = np.log(self.distance_map)
+        self.distance_map      /= (self.distance_map*np.diff(self.grid[0])[0]).sum()
 
     def ConfidenceVolume(self, adLevels):
         # create a normalized cumulative distribution
-        self.log_volume_map_sorted = np.sort(self.log_volume_map.flatten())[::-1]
-        self.log_volume_map_cum = cumulative.fast_log_cumulative(self.log_volume_map_sorted)
+        self.log_volume_map_sorted  = np.sort(self.log_volume_map.flatten())[::-1]
+        self.log_volume_map_cum     = cumulative.fast_log_cumulative(self.log_volume_map_sorted)
         
         # find the indeces  corresponding to the given CLs
-        adLevels = np.ravel([adLevels])
-        args = [(self.log_volume_map_sorted,self.log_volume_map_cum,level) for level in adLevels]
-        adHeights = self.pool.map(FindHeights,args)
-        self.heights = {str(lev):hei for lev,hei in zip(adLevels,adHeights)}
-        volumes = []
+        adLevels        = np.ravel([adLevels])
+        args            = [(self.log_volume_map_sorted,self.log_volume_map_cum,level) for level in adLevels]
+        adHeights       = self.pool.map(FindHeights,args)
+        self.heights    = {str(lev):hei for lev,hei in zip(adLevels,adHeights)}
+        volumes         = []
+        
         for height in adHeights:
+            
             (index_d, index_dec, index_ra,) = np.where(self.log_volume_map>=height)
             volumes.append(np.sum([self.grid[0][i_d]**2. *np.cos(self.grid[1][i_dec]) * self.dD * self.dRA * self.dDEC for i_d,i_dec in zip(index_d,index_dec)]))
 
         self.volume_confidence = np.array(volumes)
 
         if self.injection is not None:
-            ra,dec = self.injection.get_ra_dec()
-            distance = self.injection.distance
-            logPval = logPosterior((self.density,np.array((distance,dec,ra))))
+            ra,dec           = self.injection.get_ra_dec()
+            distance         = self.injection.distance
+            logPval          = logPosterior((self.density,np.array((distance,dec,ra))))
             confidence_level = np.exp(self.log_volume_map_cum[np.abs(self.log_volume_map_sorted-logPval).argmin()])
-            height = FindHeights((self.log_volume_map_sorted,self.log_volume_map_cum,confidence_level))
+            height           = FindHeights((self.log_volume_map_sorted,self.log_volume_map_cum,confidence_level))
             (index_d, index_dec, index_ra,) = np.where(self.log_volume_map>=height)
-            searched_volume = np.sum([self.grid[0][i_d]**2. *np.cos(self.grid[1][i_dec]) * self.dD * self.dRA * self.dDEC for i_d,i_dec in zip(index_d,index_dec)])
-            self.injection_volume_confidence = confidence_level
-            self.injection_volume_height = height
+            searched_volume  = np.sum([self.grid[0][i_d]**2. *np.cos(self.grid[1][i_dec]) * self.dD * self.dRA * self.dDEC for i_d,i_dec in zip(index_d,index_dec)])
+            self.injection_volume_confidence    = confidence_level
+            self.injection_volume_height        = height
             return self.volume_confidence,(confidence_level,searched_volume)
 
         del self.log_volume_map_sorted
@@ -230,28 +220,30 @@ class DPGMMSkyPosterior(object):
     def ConfidenceArea(self, adLevels):
         
         # create a normalized cumulative distribution
-        self.log_skymap_sorted = np.sort(self.log_skymap.flatten())[::-1]
-        self.log_skymap_cum = cumulative.fast_log_cumulative(self.log_skymap_sorted)
+        self.log_skymap_sorted  = np.sort(self.log_skymap.flatten())[::-1]
+        self.log_skymap_cum     = cumulative.fast_log_cumulative(self.log_skymap_sorted)
         # find the indeces  corresponding to the given CLs
-        adLevels = np.ravel([adLevels])
-        args = [(self.log_skymap_sorted,self.log_skymap_cum,level) for level in adLevels]
-        adHeights = self.pool.map(FindHeights,args)
-
-        areas = []
+        adLevels                = np.ravel([adLevels])
+        args                    = [(self.log_skymap_sorted,self.log_skymap_cum,level) for level in adLevels]
+        adHeights               = self.pool.map(FindHeights,args)
+        areas                   = []
+        
         for height in adHeights:
             (index_dec,index_ra,) = np.where(self.log_skymap>=height)
             areas.append(np.sum([self.dRA*np.cos(self.grid[1][i_dec])*self.dDEC for i_dec in index_dec])*(180.0/np.pi)**2.0)
+    
         self.area_confidence = np.array(areas)
         
         if self.injection is not None:
-            ra,dec = self.injection.get_ra_dec()
-            id_ra = np.abs(self.grid[2]-ra).argmin()
-            id_dec = np.abs(self.grid[1]-dec).argmin()
-            logPval = self.log_skymap[id_dec,id_ra]
-            confidence_level = np.exp(self.log_skymap_cum[np.abs(self.log_skymap_sorted-logPval).argmin()])
-            height = FindHeights((self.log_skymap_sorted,self.log_skymap_cum,confidence_level))
-            (index_dec,index_ra,) = np.where(self.log_skymap >= height)
-            searched_area = np.sum([self.dRA*np.cos(self.grid[1][i_dec])*self.dDEC for i_dec in index_dec])*(180.0/np.pi)**2.0
+            ra,dec                  = self.injection.get_ra_dec()
+            id_ra                   = np.abs(self.grid[2]-ra).argmin()
+            id_dec                  = np.abs(self.grid[1]-dec).argmin()
+            logPval                 = self.log_skymap[id_dec,id_ra]
+            confidence_level        = np.exp(self.log_skymap_cum[np.abs(self.log_skymap_sorted-logPval).argmin()])
+            height                  = FindHeights((self.log_skymap_sorted,self.log_skymap_cum,confidence_level))
+            (index_dec,index_ra,)   = np.where(self.log_skymap >= height)
+            searched_area           = np.sum([self.dRA*np.cos(self.grid[1][i_dec])*self.dDEC for i_dec in index_dec])*(180.0/np.pi)**2.0
+            
             return self.area_confidence,(confidence_level,searched_area)
 
         del self.log_skymap_sorted
@@ -259,17 +251,19 @@ class DPGMMSkyPosterior(object):
         return self.area_confidence,None
 
     def ConfidenceDistance(self, adLevels):
-        cumulative_distribution = np.cumsum(self.distance_map*self.dD)
-        distances = []
+        cumulative_distribution     = np.cumsum(self.distance_map*self.dD)
+        distances                   = []
+        
         for cl in adLevels:
             idx = np.abs(cumulative_distribution-cl).argmin()
             distances.append(self.grid[0][idx])
+        
         self.distance_confidence = np.array(distances)
 
         if self.injection!=None:
-            idx = np.abs(self.injection.distance-self.grid[0]).argmin()
-            confidence_level = cumulative_distribution[idx]
-            searched_distance = self.grid[0][idx]
+            idx                 = np.abs(self.injection.distance-self.grid[0]).argmin()
+            confidence_level    = cumulative_distribution[idx]
+            searched_distance   = self.grid[0][idx]
             return self.distance_confidence,(confidence_level,searched_distance)
 
         return self.distance_confidence,None
@@ -311,7 +305,7 @@ def Posterior(args):
 
 def solve_dpgmm(args):
     (nc, model_in) = args
-    model=DPGMM(model_in)
+    model          = DPGMM(model_in)
     for _ in xrange(nc-1): model.incStickCap()
     try:
         it = model.solve(iterCap=1024)
@@ -367,28 +361,31 @@ def FindLevelForHeight(inLogArr, logvalue):
 #---------
 
 def readGC(file,dpgmm,standard_cosmology=True):
-    ra,dec,zs,zp =[],[],[],[]
-    dl = []
+    ra, dec, zs, zp, dl = [], [], [], [], []
+
     with open(file,'r') as f:
         if standard_cosmology:
-            omega = lal.CreateCosmologicalParameters(0.7,0.3,0.7,-1.0,0.0,0.0)
-            zmin,zmax = find_redshift_limits([0.69,0.71],[0.29,0.31],dpgmm.grid[0][0],dpgmm.grid[0][-1])
+            omega       = lal.CreateCosmologicalParameters(0.7, 0.3, 0.7, -1.0, 0.0, 0.0)
+            zmin, zmax  = find_redshift_limits([0.69,0.71], [0.29,0.31], dpgmm.grid[0][0], sdpgmm.grid[0][-1])
         else:
-            zmin,zmax = find_redshift_limits([0.1,1.2],[0.0,1.0],dpgmm.grid[0][0],dpgmm.grid[0][-1])
+            zmin,zmax   = find_redshift_limits([0.1,1.2],[0.0,1.0],dpgmm.grid[0][0],dpgmm.grid[0][-1])
         sys.stderr.write("selecting galaxies within redshift %f and %f from distances in %f and %f\n"%(zmin,zmax,dpgmm.grid[0][0],dpgmm.grid[0][-1]))
+
         for line in f:
             fields = line.split(None)
             if 0.0 < np.float(fields[40]) > 0.0 or np.float(fields[41]) > 0.0:
+                
                 if not(standard_cosmology):
-                    h = np.random.uniform(0.1,2.0)
-                    om = np.random.uniform(0.0,1.0)
-                    ol = 1.0-om
-                    omega = lal.CreateCosmologicalParameters(h,om,ol,-1.0,0.0,0.0)
+                    h       = np.random.uniform(0.1,2.0)
+                    om      = np.random.uniform(0.0,1.0)
+                    ol      = 1.0-om
+                    omega   = lal.CreateCosmologicalParameters(h,om,ol,-1.0,0.0,0.0)
 
                 ra.append(np.float(fields[0]))
                 dec.append(np.float(fields[1]))
                 zs.append(np.float(fields[40]))
                 zp.append(np.float(fields[41]))
+                
                 if not(np.isnan(zs[-1])) and (zmin < zs[-1] < zmax):
                     dl.append(lal.LuminosityDistance(omega,zs[-1]))
                 elif not(np.isnan(zp[-1]))  and (zmin < zp[-1] < zmax):
