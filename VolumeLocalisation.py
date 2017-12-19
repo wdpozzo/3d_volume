@@ -272,20 +272,6 @@ class DPGMMSkyPosterior(object):
 # DPGMM functions
 # ---------------
 
-def log_cdf(logpdf):
-    """
-    compute the log cdf from the  log pdf
-    
-    cdf_i = \sum_i pdf
-    log cdf_i = log(\sum_i \exp pdf)
-    
-    """
-    logcdf = np.zeros(len(logpdf))
-    logcdf[0] = logpdf[0]
-    for j in xrange(1,len(logpdf)):
-        logcdf[j]=np.logaddexp(logcdf[j-1],logpdf[j])
-    return logcdf-logcdf[-1]
-
 def logPosterior(args):
     density,celestial_coordinates = args
     cartesian_vect = celestial_to_cartesian(celestial_coordinates)
@@ -459,27 +445,28 @@ if __name__=='__main__':
     parser.add_option("--nsamps", type="int", dest="nsamps", help="number of posterior samples to utilise", default=None)
     parser.add_option("--cosmology", type="int", dest="cosmology", help="assume a lambda CDM cosmology?", default=True)
     parser.add_option("--3d", type="int", dest="threed", help="3d volume map", default=0)
-    (options, args) = parser.parse_args()
+    (options, args)     = parser.parse_args()
+    
     np.random.seed(1)
-    CLs = [0.1,0.2,0.25,0.3,0.4,0.5,0.6,0.68,0.7,0.75,0.8,0.9]
-    input_file = options.input
-    injFile = options.injfile
-    eventID = options.event_id
-    out_dir = options.output
-    options.bins = np.array(options.bins,dtype=np.int)
+    CLs                 = [0.1,0.2,0.25,0.3,0.4,0.5,0.6,0.68,0.7,0.75,0.8,0.9] # add options?
+    input_file          = options.input
+    injFile             = options.injfile
+    eventID             = options.event_id
+    out_dir             = options.output
+    options.bins        = np.array(options.bins,dtype=np.int)
     os.system('mkdir -p %s'%(out_dir))
   
     if injFile is not None:
-        injections = SimInspiralUtils.ReadSimInspiralFromFiles([injFile])
-        injection = injections[0]
-        (ra_inj, dec_inj) = injection.get_ra_dec()
-        tc = injection.get_time_geocent()
-        GPSTime=lal.LIGOTimeGPS(str(tc))
-        gmst_rad_inj = lal.GreenwichMeanSiderealTime(GPSTime)
-        dist_inj = injection.distance
+        injections          = SimInspiralUtils.ReadSimInspiralFromFiles([injFile])
+        injection           = injections[0] # pass event id from options
+        (ra_inj, dec_inj)   = injection.get_ra_dec()
+        tc                  = injection.get_time_geocent()
+        GPSTime             = lal.LIGOTimeGPS(str(tc))
+        gmst_rad_inj        = lal.GreenwichMeanSiderealTime(GPSTime)
+        dist_inj            = injection.distance
         print 'injection values -->',dist_inj,ra_inj,dec_inj,tc
     else:
-        injection = None
+        injection           = None
 
     samples = np.genfromtxt(input_file,names=True)
 
@@ -490,8 +477,8 @@ if __name__=='__main__':
     else:
         samples = np.column_stack((samples["distance"],samples["dec"],samples["ra"],samples["time"]))
 
-    samps = []
-    gmst_rad = []
+    samps       = []
+    gmst_rad    = []
 
     if options.nsamps is not None:
         idx = np.random.choice(range(0,len(samples[:,0])),size=options.nsamps)
@@ -499,34 +486,42 @@ if __name__=='__main__':
         idx = range(0,len(samples[:,0]))
 
     for k in xrange(len(samples[idx,0])):
-        GPSTime=lal.LIGOTimeGPS(samples[k,3])
+        GPSTime = lal.LIGOTimeGPS(samples[k,3])
         gmst_rad.append(lal.GreenwichMeanSiderealTime(GPSTime))
         samps.append(celestial_to_cartesian(np.array((samples[k,0],samples[k,1],samples[k,2]))))
 
-    dpgmm = DPGMMSkyPosterior(samps,dimension=3,
-                              max_sticks=options.max_stick,
-                              bins=options.bins,
-                              dist_max=options.dmax,
-                              nthreads=options.nthreads,
-                              injection=injection,
-                              catalog=options.catalog,
-                              standard_cosmology=options.cosmology)
+    dpgmm = DPGMMSkyPosterior(samps,
+                              dimension          = 3,
+                              max_sticks         = options.max_stick,
+                              bins               = options.bins,
+                              dist_max           = options.dmax,
+                              nthreads           = options.nthreads,
+                              injection          = injection,
+                              catalog            = options.catalog,
+                              standard_cosmology = options.cosmology)
+
     dpgmm.compute_dpgmm()
 
     if dpgmm.catalog is not None:
+    
         dpgmm.rank_galaxies()
 
         np.savetxt(os.path.join(options.output,'galaxy_ranks.txt'),
-                   np.array([np.degrees(dpgmm.ranked_ra[:options.ranks]),np.degrees(dpgmm.ranked_dec[:options.ranks]),dpgmm.ranked_dl[:options.ranks],dpgmm.ranked_zs[:options.ranks],dpgmm.ranked_zp[:options.ranks],dpgmm.ranked_probability[:options.ranks]]).T,
+                   np.array([np.degrees(dpgmm.ranked_ra[:options.ranks]),
+                             np.degrees(dpgmm.ranked_dec[:options.ranks]),
+                             dpgmm.ranked_dl[:options.ranks],
+                             dpgmm.ranked_zs[:options.ranks],
+                             dpgmm.ranked_zp[:options.ranks],
+                             dpgmm.ranked_probability[:options.ranks]]).T,
                    fmt='%.9f\t%.9f\t%.9f\t%.9f\t%.9f\t%.9f\t',
                    header='ra[deg]\tdec[deg]\tDL[Mpc]\tz_spec\tz_phot\tlogposterior')
 
     dpgmm.evaluate_volume_map()
-    volumes,searched_volume = dpgmm.ConfidenceVolume(CLs)
+    volumes, searched_volume        = dpgmm.ConfidenceVolume(CLs)
     dpgmm.evaluate_sky_map()
+    areas, searched_area            = dpgmm.ConfidenceArea(CLs)
     dpgmm.evaluate_distance_map()
-    areas,searched_area = dpgmm.ConfidenceArea(CLs)
-    distances,searched_distance = dpgmm.ConfidenceDistance(CLs)
+    distances, searched_distance    = dpgmm.ConfidenceDistance(CLs)
 
     if dpgmm.catalog is not None:
         number_of_galaxies = np.zeros(len(CLs),dtype=np.int)
@@ -656,15 +651,6 @@ if __name__=='__main__':
                 ax.plot(np.linspace(-MAX,MAX,100),np.zeros(100),color='0.5', lw=0.7, zdir='y', zs=0.0)
                 ax.plot(np.linspace(-MAX,MAX,100),np.zeros(100),color='0.5', lw=0.7, zdir='x', zs=0.0)
                 ax.plot(np.zeros(100),np.linspace(-MAX,MAX,100),color='0.5', lw=0.7, zdir='y', zs=0.0)
-
-#                ax.scatter(x[k], z[k], c = dpgmm.ranked_probability[k], zdir='y', zs=MAX,marker='.',alpha=0.5,edgecolors='none')
-#                ax.scatter(y[k], z[k], c = dpgmm.ranked_probability[k], zdir='x', zs=-MAX,marker='.',alpha=0.5,edgecolors='none')
-#                ax.scatter(x[k], y[k], c = dpgmm.ranked_probability[k], zdir='z', zs=-MAX,marker='.',alpha=0.5,edgecolors='none')
-
-
-#                ax.scatter(x[imax],z[imax],c=dpgmm.ranked_probability[imax], zdir='y', zs=MAX,s=128,marker='+')
-#                ax.scatter(y[imax],z[imax],c=dpgmm.ranked_probability[imax], zdir='x', zs=-MAX,s=128,marker='+')
-#                ax.scatter(x[imax],y[imax],c=dpgmm.ranked_probability[imax], zdir='z', zs=-MAX,s=128,marker='+')
 
                 ax.set_xlim([-MAX, MAX])
                 ax.set_ylim([-MAX, MAX])
