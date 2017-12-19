@@ -106,7 +106,14 @@ class DPGMMSkyPosterior(object):
         self.dD = np.diff(self.grid[0])[0]
         self.dDEC = np.diff(self.grid[1])[0]
         self.dRA = np.diff(self.grid[2])[0]
-
+        dRA = 2.0*np.pi/options.bins[2]
+        dDEC = np.pi/options.bins[1]
+        dD = (options.dmax-1.0)/options.bins[0]
+        print 'The number of grid points in the sky is :',self.bins[1]*self.bins[2],'resolution = ',np.degrees(self.dRA)*np.degrees(self.dDEC), ' deg^2'
+        print 'The number of grid points in distance is :',self.bins[0],'minimum resolution = ',self.dD,' Mpc'
+        print 'Total grid size is :',self.bins[0]*self.bins[1]*self.bins[2]
+        print 'Minimum Volume resolution is :',self.dD*self.dDEC*self.dRA,' Mpc^3'
+        
     def compute_dpgmm(self):
         self._initialise_dpgmm()
         try:
@@ -127,7 +134,7 @@ class DPGMMSkyPosterior(object):
         except:
             sys.stderr.write("Model density not found, recomputing\n")
             self.density = self.model.intMixture()
-            # pickle dump the dpgmm model densitys
+            # pickle dump the dpgmm model density
             pickle.dump(self.density, open(os.path.join(options.output,'dpgmm_density.p'), 'wb'))
 
     def rank_galaxies(self):
@@ -481,14 +488,6 @@ if __name__=='__main__':
     else:
         samples = np.column_stack((samples["distance"],samples["dec"],samples["ra"],samples["time"]))
 
-    dRA = 2.0*np.pi/options.bins[2]
-    dDEC = np.pi/options.bins[1]
-    dD = (options.dmax-1.0)/options.bins[0]
-    print 'The number of grid points in the sky is :',options.bins[1]*options.bins[2],'resolution = ',np.degrees(dRA)*np.degrees(dDEC), ' deg^2'
-    print 'The number of grid points in distance is :',options.bins[0],'minimum resolution = ',dD,' Mpc'
-    print 'Total grid size is :',options.bins[0]*options.bins[1]*options.bins[2]
-    print 'Minimum Volume resolution is :',dD*dDEC*dRA,' Mpc^3'
-
     samps = []
     gmst_rad = []
 
@@ -575,12 +574,14 @@ if __name__=='__main__':
 
     if options.plots:
         sys.stderr.write("producing sky maps \n")
-        plt.figure()
-        plt.plot(np.arange(1,dpgmm.max_sticks+1),dpgmm.scores,'.')
-        plt.xlabel(r"$\mathrm{number}$ $\mathrm{of}$ $\mathrm{components}$")
-        plt.ylabel(r"$\mathrm{marginal}$ $\mathrm{likelihood}$")
-        plt.savefig(os.path.join(out_dir, 'scores.pdf'))
-        
+        try:
+            plt.figure()
+            plt.plot(np.arange(1,dpgmm.max_sticks+1),dpgmm.scores,'.')
+            plt.xlabel(r"$\mathrm{number}$ $\mathrm{of}$ $\mathrm{components}$")
+            plt.ylabel(r"$\mathrm{marginal}$ $\mathrm{likelihood}$")
+            plt.savefig(os.path.join(out_dir, 'scores.pdf'))
+        except:
+            pass
         from mpl_toolkits.basemap import Basemap,shiftgrid
         # make an orthographic projection map
         plt.figure()
@@ -716,8 +717,8 @@ if __name__=='__main__':
                 S = plt.scatter(*m(lon_gals, lat_gals), s=10, c=dl_gals, lw=0, marker='o')
 
                 if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='k', s=500, marker='+')
-#                cbar = m.colorbar(S,location='bottom',pad="5%")
-#                cbar.set_label(r"$\log(\mathrm{Probability})$")
+                cbar = m.colorbar(S,location='bottom',pad="5%")
+                cbar.set_label(r"$\log(\mathrm{Probability})$")
                 plt.savefig(os.path.join(out_dir, 'galaxies_marg_sky_%d.pdf'%(eventID)))
 
     if options.threed:
@@ -726,7 +727,7 @@ if __name__=='__main__':
         from skimage import measure
         from mpl_toolkits.mplot3d import Axes3D
         # Create a cartesian grid
-        N = 100
+        N = 200
         MAX = dpgmm.grid[0][-1]
         x = np.linspace(-MAX,MAX,N)
         y = np.linspace(-MAX,MAX,N)
