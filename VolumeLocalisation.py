@@ -352,7 +352,7 @@ def readGC(file,dpgmm,standard_cosmology=True):
     with open(file,'r') as f:
         if standard_cosmology:
             omega       = lal.CreateCosmologicalParameters(0.7, 0.3, 0.7, -1.0, 0.0, 0.0)
-            zmin, zmax  = find_redshift_limits([0.69,0.71], [0.29,0.31], dpgmm.grid[0][0], sdpgmm.grid[0][-1])
+            zmin, zmax  = find_redshift_limits([0.69,0.71], [0.29,0.31], dpgmm.grid[0][0], dpgmm.grid[0][-1])
         else:
             zmin,zmax   = find_redshift_limits([0.1,1.2],[0.0,1.0],dpgmm.grid[0][0],dpgmm.grid[0][-1])
         sys.stderr.write("selecting galaxies within redshift %f and %f from distances in %f and %f\n"%(zmin,zmax,dpgmm.grid[0][0],dpgmm.grid[0][-1]))
