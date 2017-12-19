@@ -395,18 +395,23 @@ def readGC(file,dpgmm,standard_cosmology=True):
         f.close()
     return np.column_stack((np.radians(np.array(ra)),np.radians(np.array(dec)),np.array(dl),np.array(zs),np.array(zp)))
 
-def find_redshift_limits(h,om,dmin,dmax):
+def find_redshift_limits(h, om, dmin, dmax):
+    
     from scipy.optimize import newton
+    
     def my_target(z,omega,d):
         return d - lal.LuminosityDistance(omega,z)
+    
     zu = []
-    zl = []
+    l = []
+    
     for hi in np.linspace(h[0],h[1],10):
         for omi in np.linspace(om[0],om[1],10):
             omega = lal.CreateCosmologicalParameters(hi,omi,1.0-omi,-1.0,0.0,0.0)
             zu.append(newton(my_target,np.random.uniform(0.0,1.0),args=(omega,dmax)))
             zl.append(newton(my_target,np.random.uniform(0.0,1.0),args=(omega,dmin)))
-    return np.min(zl),np.max(zu)
+
+    return np.min(zl), np.max(zu)
 
 #---------
 # plotting
