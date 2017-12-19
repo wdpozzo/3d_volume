@@ -389,7 +389,7 @@ def find_redshift_limits(h, om, dmin, dmax):
         return d - lal.LuminosityDistance(omega,z)
     
     zu = []
-    l = []
+    zl = []
     
     for hi in np.linspace(h[0],h[1],10):
         for omi in np.linspace(om[0],om[1],10):
