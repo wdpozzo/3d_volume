@@ -5,7 +5,7 @@ import os, sys, numpy as np
 import cPickle as pickle
 from dpgmm import *
 import copy
-#import healpy as hp
+import healpy as hp
 from scipy.misc import logsumexp
 import optparse as op
 import lal
@@ -76,27 +76,24 @@ class DPGMMSkyPosterior(object):
         for point in self.posterior_samples:
             self.model.add(point)
 
-        self.model.setPrior(mean = celestial_to_cartesian(np.mean(self.posterior_samples,axis=1)), scale=np.prod(celestial_to_cartesian(np.array([self.dD,self.dDEC,self.dRA]))))
+        self.model.setPrior(mean = celestial_to_cartesian(np.mean(self.posterior_samples,axis=1)))
         sys.stderr.write("prior scale = %.5e\n"%(np.prod(celestial_to_cartesian(np.array([self.dD,self.dDEC,self.dRA])))))
-
         self.model.setThreshold(1e-4)
         self.model.setConcGamma(1,1)
     
     def _initialise_grid(self):
         self.grid = []
-#        a = np.maximum(0.75*samples[:,0].min(),1.0)
-#        b = np.minimum(1.25*samples[:,0].max(),self.distance_max)
-        a = 0.9*samples[:,0].min()#0.0
-        b = 1.1*samples[:,0].max()#self.distance_max
+        a = 0.9*samples[:,0].min()
+        b = 1.1*samples[:,0].max()
         self.grid.append(np.linspace(a,b,self.bins[0]))
         a = -np.pi/2.0
         b = np.pi/2.0
         if samples[:,1].min()<0.0:
-            a = 1.1*samples[:,1].min()#0.0
+            a = 1.1*samples[:,1].min()
         else:
             a = 0.9*samples[:,1].min()
         if samples[:,1].max()<0.0:
-            b = 0.9*samples[:,1].max()#0.0
+            b = 0.9*samples[:,1].max()
         else:
             b = 1.1*samples[:,1].max()
 
@@ -109,15 +106,36 @@ class DPGMMSkyPosterior(object):
         self.dD = np.diff(self.grid[0])[0]
         self.dDEC = np.diff(self.grid[1])[0]
         self.dRA = np.diff(self.grid[2])[0]
-
+        dRA = 2.0*np.pi/options.bins[2]
+        dDEC = np.pi/options.bins[1]
+        dD = (options.dmax-1.0)/options.bins[0]
+        print 'The number of grid points in the sky is :',self.bins[1]*self.bins[2],'resolution = ',np.degrees(self.dRA)*np.degrees(self.dDEC), ' deg^2'
+        print 'The number of grid points in distance is :',self.bins[0],'minimum resolution = ',self.dD,' Mpc'
+        print 'Total grid size is :',self.bins[0]*self.bins[1]*self.bins[2]
+        print 'Minimum Volume resolution is :',self.dD*self.dDEC*self.dRA,' Mpc^3'
+        
     def compute_dpgmm(self):
         self._initialise_dpgmm()
-        solve_args = [(nc, self.model) for nc in xrange(1, self.max_sticks+1)]
-        solve_results = self.pool.map(solve_dpgmm, solve_args)
-        self.scores = np.array([r[1] for r in solve_results])
-        self.model = (solve_results[self.scores.argmax()][-1])
-        print "best model has ",self.scores.argmax()+1,"components"
-        self.density = self.model.intMixture()
+        try:
+            sys.stderr.write("Loading dpgmm model\n")
+            self.model = pickle.load(open(os.path.join(options.output,'dpgmm_model.p'), 'rb'))
+        except:
+            sys.stderr.write("Model not found, recomputing\n")
+            solve_args = [(nc, self.model) for nc in xrange(1, self.max_sticks+1)]
+            solve_results = self.pool.map(solve_dpgmm, solve_args)
+            self.scores = np.array([r[1] for r in solve_results])
+            self.model = (solve_results[self.scores.argmax()][-1])
+            # pickle dump the dpgmm model
+            pickle.dump(self.model, open(os.path.join(options.output,'dpgmm_model.p'), 'wb'))
+            print "best model has ",self.scores.argmax()+1,"components"
+        try:
+            sys.stderr.write("Loading density model\n")
+            self.density = pickle.load(open(os.path.join(options.output,'dpgmm_density.p'), 'rb'))
+        except:
+            sys.stderr.write("Model density not found, recomputing\n")
+            self.density = self.model.intMixture()
+            # pickle dump the dpgmm model density
+            pickle.dump(self.density, open(os.path.join(options.output,'dpgmm_density.p'), 'wb'))
 
     def rank_galaxies(self):
         sys.stderr.write("Ranking the galaxies: computing log posterior for %d galaxies\n"%(self.catalog.shape[0]))
@@ -470,14 +488,6 @@ if __name__=='__main__':
     else:
         samples = np.column_stack((samples["distance"],samples["dec"],samples["ra"],samples["time"]))
 
-    dRA = 2.0*np.pi/options.bins[2]
-    dDEC = np.pi/options.bins[1]
-    dD = (options.dmax-1.0)/options.bins[0]
-    print 'The number of grid points in the sky is :',options.bins[1]*options.bins[2],'resolution = ',np.degrees(dRA)*np.degrees(dDEC), ' deg^2'
-    print 'The number of grid points in distance is :',options.bins[0],'minimum resolution = ',dD,' Mpc'
-    print 'Total grid size is :',options.bins[0]*options.bins[1]*options.bins[2]
-    print 'Minimum Volume resolution is :',dD*dDEC*dRA,' Mpc^3'
-
     samps = []
     gmst_rad = []
 
@@ -499,13 +509,7 @@ if __name__=='__main__':
                               injection=injection,
                               catalog=options.catalog,
                               standard_cosmology=options.cosmology)
-    try:
-        print "Restoring DPGMM model"
-        dpgmm.density = pickle.load(pen(os.path.join(options.output,'dpgmm_model.p'), 'wb'))
-    except:
-        print "Failed, recomputing"
-        dpgmm.compute_dpgmm()
-        pickle.dump(dpgmm.density, open(os.path.join(options.output,'dpgmm_model.p'), 'wb'))
+    dpgmm.compute_dpgmm()
 
     if dpgmm.catalog is not None:
         dpgmm.rank_galaxies()
@@ -570,12 +574,14 @@ if __name__=='__main__':
 
     if options.plots:
         sys.stderr.write("producing sky maps \n")
-        plt.figure()
-        plt.plot(np.arange(1,dpgmm.max_sticks+1),dpgmm.scores,'.')
-        plt.xlabel(r"$\mathrm{number}$ $\mathrm{of}$ $\mathrm{components}$")
-        plt.ylabel(r"$\mathrm{marginal}$ $\mathrm{likelihood}$")
-        plt.savefig(os.path.join(out_dir, 'scores.pdf'))
-        
+        try:
+            plt.figure()
+            plt.plot(np.arange(1,dpgmm.max_sticks+1),dpgmm.scores,'.')
+            plt.xlabel(r"$\mathrm{number}$ $\mathrm{of}$ $\mathrm{components}$")
+            plt.ylabel(r"$\mathrm{marginal}$ $\mathrm{likelihood}$")
+            plt.savefig(os.path.join(out_dir, 'scores.pdf'))
+        except:
+            pass
         from mpl_toolkits.basemap import Basemap,shiftgrid
         # make an orthographic projection map
         plt.figure()
@@ -711,8 +717,8 @@ if __name__=='__main__':
                 S = plt.scatter(*m(lon_gals, lat_gals), s=10, c=dl_gals, lw=0, marker='o')
 
                 if injFile is not None: plt.scatter(*m(lon_inj, lat_inj), color='k', s=500, marker='+')
-#                cbar = m.colorbar(S,location='bottom',pad="5%")
-#                cbar.set_label(r"$\log(\mathrm{Probability})$")
+                cbar = m.colorbar(S,location='bottom',pad="5%")
+                cbar.set_label(r"$\log(\mathrm{Probability})$")
                 plt.savefig(os.path.join(out_dir, 'galaxies_marg_sky_%d.pdf'%(eventID)))
 
     if options.threed:
@@ -721,7 +727,7 @@ if __name__=='__main__':
         from skimage import measure
         from mpl_toolkits.mplot3d import Axes3D
         # Create a cartesian grid
-        N = 100
+        N = 200
         MAX = dpgmm.grid[0][-1]
         x = np.linspace(-MAX,MAX,N)
         y = np.linspace(-MAX,MAX,N)
