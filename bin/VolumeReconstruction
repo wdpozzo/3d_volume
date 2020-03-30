@@ -1,0 +1,4 @@
+#!/usr/bin/env python
+
+from volume_reconstruction import VolumeReconstruction
+VolumeReconstruction.main()
